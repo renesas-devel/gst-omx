@@ -1443,6 +1443,8 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
 
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
 
+    gst_omx_port_update_port_definition (self->dec_out_port, NULL);
+
     if (acq_return == GST_OMX_ACQUIRE_BUFFER_RECONFIGURE) {
       err = gst_omx_video_dec_allocate_output_buffers (self);
       if (err != OMX_ErrorNone)
