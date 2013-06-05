@@ -2111,6 +2111,9 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     if (gst_omx_component_get_state (self->dec,
             GST_CLOCK_TIME_NONE) != OMX_StateExecuting)
       return FALSE;
+
+    if (gst_omx_port_populate (self->dec_out_port) != OMX_ErrorNone)
+      return FALSE;
   }
 
   /* Unset flushing to allow ports to accept data again */
