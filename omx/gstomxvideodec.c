@@ -1793,63 +1793,53 @@ static GList *
 gst_omx_video_dec_get_supported_colorformats (GstOMXVideoDec * self)
 {
   GstOMXPort *port = self->dec_out_port;
-  GstVideoCodecState *state = self->input_state;
   OMX_VIDEO_PARAM_PORTFORMATTYPE param;
   OMX_ERRORTYPE err;
   GList *negotiation_map = NULL;
-  gint old_index;
+  gint i;
+  OMX_COLOR_FORMATTYPE format_org;
+  VideoNegotiationMap *m;
+  const VideoNegotiationMap format_list[] = {
+    {GST_VIDEO_FORMAT_NV12, OMX_COLOR_FormatYUV420SemiPlanar},
+    {GST_VIDEO_FORMAT_I420, OMX_COLOR_FormatYUV420Planar},
+    {GST_VIDEO_FORMAT_I420, OMX_COLOR_FormatYUV420PackedPlanar},
+  };
 
   GST_OMX_INIT_STRUCT (&param);
   param.nPortIndex = port->index;
-  param.nIndex = 0;
-  if (!state || state->info.fps_n == 0)
-    param.xFramerate = 0;
-  else
-    param.xFramerate = (state->info.fps_n << 16) / (state->info.fps_d);
 
-  old_index = -1;
-  do {
-    VideoNegotiationMap *m;
+  err = gst_omx_component_get_parameter (self->dec,
+      OMX_IndexParamVideoPortFormat, &param);
+  if (err != OMX_ErrorNone) {
+    GST_ERROR_OBJECT (self,
+        "Failed to getting video port format (err info: %s (0x%08x))",
+        gst_omx_error_to_string (err), err);
+    return NULL;
+  }
+  /* temporary save original format type */
+  format_org = param.eColorFormat;
 
-    err =
-        gst_omx_component_get_parameter (self->dec,
+  for (i = 0; i < sizeof (format_list) / sizeof (VideoNegotiationMap); i++) {
+    param.eColorFormat = format_list[i].type;
+    err = gst_omx_component_set_parameter (self->dec,
         OMX_IndexParamVideoPortFormat, &param);
-
-    /* FIXME: Workaround for Bellagio that simply always
-     * returns the same value regardless of nIndex and
-     * never returns OMX_ErrorNoMore
-     */
-    if (old_index == param.nIndex)
-      break;
-
-    if (err == OMX_ErrorNone || err == OMX_ErrorNoMore) {
-      switch (param.eColorFormat) {
-        case OMX_COLOR_FormatYUV420Planar:
-        case OMX_COLOR_FormatYUV420PackedPlanar:
-          m = g_slice_new (VideoNegotiationMap);
-          m->format = GST_VIDEO_FORMAT_I420;
-          m->type = param.eColorFormat;
-          negotiation_map = g_list_append (negotiation_map, m);
-          GST_DEBUG_OBJECT (self, "Component supports I420 (%d) at index %d",
-              param.eColorFormat, param.nIndex);
-          break;
-        case OMX_COLOR_FormatYUV420SemiPlanar:
-          m = g_slice_new (VideoNegotiationMap);
-          m->format = GST_VIDEO_FORMAT_NV12;
-          m->type = param.eColorFormat;
-          negotiation_map = g_list_append (negotiation_map, m);
-          GST_DEBUG_OBJECT (self, "Component supports NV12 (%d) at index %d",
-              param.eColorFormat, param.nIndex);
-          break;
-        default:
-          GST_DEBUG_OBJECT (self,
-              "Component supports unsupported color format %d at index %d",
-              param.eColorFormat, param.nIndex);
-          break;
-      }
+    if (err == OMX_ErrorNone) {
+      m = g_slice_new (VideoNegotiationMap);
+      m->format = format_list[i].format;
+      m->type = format_list[i].type;
+      negotiation_map = g_list_append (negotiation_map, m);
+      GST_DEBUG_OBJECT (self, "Component supports (%d)", param.eColorFormat);
     }
-    old_index = param.nIndex++;
-  } while (err == OMX_ErrorNone);
+  }
+
+  /* restore setting */
+  param.eColorFormat = format_org;
+  err = gst_omx_component_set_parameter (self->dec,
+      OMX_IndexParamVideoPortFormat, &param);
+  if (err != OMX_ErrorNone)
+    GST_ERROR_OBJECT (self,
+        "Failed to seetting video port format (err info: %s (0x%08x))",
+        gst_omx_error_to_string (err), err);
 
   return negotiation_map;
 }
