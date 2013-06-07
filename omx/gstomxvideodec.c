@@ -2383,6 +2383,9 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
     if (offset == size)
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
 
+    if (GST_BUFFER_FLAG_IS_SET (frame->input_buffer, GST_BUFFER_FLAG_HEADER))
+      buf->omx_buf->nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
+
     self->started = TRUE;
     err = gst_omx_port_release_buffer (port, buf);
     if (err != OMX_ErrorNone)
