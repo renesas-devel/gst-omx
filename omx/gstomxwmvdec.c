@@ -107,7 +107,33 @@ static GstFlowReturn
 gst_omx_wmv_dec_prepare_frame (GstOMXVideoDec * self,
     GstVideoCodecFrame * frame)
 {
-  if (self->codec_data) {
+  GstCaps *caps;
+  gboolean is_ap = FALSE;
+  GstStructure *structure;
+  const gchar *fourcc;
+
+  if (self->codec_data == NULL)
+    return GST_FLOW_OK;
+
+  caps = gst_pad_get_current_caps (GST_VIDEO_DECODER_SINK_PAD (self));
+  structure = gst_caps_get_structure (caps, 0);
+  fourcc = gst_structure_get_string (structure, "format");
+  if (fourcc) {
+    if (strncmp (fourcc, "WVC1", strlen ("WVC1")) == 0) {
+      GST_INFO_OBJECT (self, "stream type is Advanced Profile");
+      is_ap = TRUE;
+    } else {
+      GST_INFO_OBJECT (self, "stream type is Simple/Main Profile");
+      is_ap = FALSE;
+    }
+  }
+  gst_caps_unref (caps);
+
+  if (is_ap) {
+    frame->input_buffer =
+        gst_buffer_append (self->codec_data, frame->input_buffer);
+    self->codec_data = NULL;
+  } else {
     OMX_PARAM_PORTDEFINITIONTYPE port_def;
     guint32 *SeqHdrBuf;
     guint8 *u8ptr;
