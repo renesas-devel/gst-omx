@@ -735,6 +735,7 @@ gst_omx_video_dec_open (GstVideoDecoder * decoder)
       klass->cdata.component_name, klass->cdata.component_role,
       klass->cdata.hacks);
   self->started = FALSE;
+  self->set_format_done = FALSE;
 
   if (!self->dec)
     return FALSE;
@@ -819,6 +820,7 @@ gst_omx_video_dec_close (GstVideoDecoder * decoder)
   self->dec = NULL;
 
   self->started = FALSE;
+  self->set_format_done = FALSE;
 
   GST_DEBUG_OBJECT (self, "Closed decoder");
 
@@ -2125,6 +2127,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   self->downstream_flow_ret = GST_FLOW_OK;
   gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
       (GstTaskFunction) gst_omx_video_dec_loop, decoder, NULL);
+  self->set_format_done = TRUE;
 
   return TRUE;
 }
@@ -2159,8 +2162,9 @@ gst_omx_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
   self->last_upstream_ts = 0;
   self->eos = FALSE;
   self->downstream_flow_ret = GST_FLOW_OK;
-  gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
-      (GstTaskFunction) gst_omx_video_dec_loop, decoder, NULL);
+  if (self->set_format_done)
+    gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
+        (GstTaskFunction) gst_omx_video_dec_loop, decoder, NULL);
 
   GST_DEBUG_OBJECT (self, "Reset decoder");
 

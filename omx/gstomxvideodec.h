@@ -62,6 +62,8 @@ struct _GstOMXVideoDec
    * the first buffer */
   gboolean started;
 
+  gboolean set_format_done;
+
   GstClockTime last_upstream_ts;
 
   /* Draining state */
