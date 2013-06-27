@@ -133,9 +133,15 @@ gst_omx_core_acquire (const gchar * filename)
   core->user_count++;
   if (core->user_count == 1) {
     OMX_ERRORTYPE err;
+    int retry = 1;
 
+  reinit:
     err = core->init ();
     if (err != OMX_ErrorNone) {
+      if (retry-- > 0) {
+        core->deinit ();
+        goto reinit;
+      }
       GST_ERROR ("Failed to initialize core '%s': 0x%08x", filename, err);
       g_mutex_unlock (&core->lock);
       goto error;
