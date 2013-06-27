@@ -1015,19 +1015,6 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
     goto done;
   }
 
-  /* Same strides and everything */
-  if (gst_buffer_get_size (outbuf) == inbuf->omx_buf->nFilledLen) {
-    GstMapInfo map = GST_MAP_INFO_INIT;
-
-    gst_buffer_map (outbuf, &map, GST_MAP_WRITE);
-    memcpy (map.data,
-        inbuf->omx_buf->pBuffer + inbuf->omx_buf->nOffset,
-        inbuf->omx_buf->nFilledLen);
-    gst_buffer_unmap (outbuf, &map);
-    ret = TRUE;
-    goto done;
-  }
-
   /* Different strides */
 
   switch (vinfo->finfo->format) {
