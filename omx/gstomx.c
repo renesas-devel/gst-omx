@@ -2718,6 +2718,9 @@ plugin_init (GstPlugin * plugin)
 
   GST_DEBUG_CATEGORY_INIT (gstomx_debug, "omx", 0, "gst-omx");
 
+  /* Set the default path of gstomx.conf */
+  g_setenv (*env_config_name, "/etc", FALSE);
+
   /* Read configuration file gstomx.conf from the preferred
    * configuration directories */
   env_config_dir = g_strdup (g_getenv (*env_config_name));
