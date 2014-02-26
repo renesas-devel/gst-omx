@@ -1591,7 +1591,6 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         /* Set UV plane */
         offset[1] = port_def->format.video.nSliceHeight *
             port_def->format.video.nStride;
-        data += offset[1];
         stride[1] = port_def->format.video.nStride;
         plane_size /= 2;
 
