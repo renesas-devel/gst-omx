@@ -2402,7 +2402,6 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       }
 
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
-      buf->omx_buf->nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
       buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);;
       gst_buffer_extract (codec_data, 0,
           buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
