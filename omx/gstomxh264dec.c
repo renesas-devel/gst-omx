@@ -34,6 +34,8 @@ static gboolean gst_omx_h264_dec_is_format_change (GstOMXVideoDec * dec,
     GstOMXPort * port, GstVideoCodecState * state);
 static gboolean gst_omx_h264_dec_set_format (GstOMXVideoDec * dec,
     GstOMXPort * port, GstVideoCodecState * state);
+static gsize gst_omx_h264_dec_copy_frame (GstOMXVideoDec * dec,
+    GstBuffer * inbuf, guint offset, GstOMXBuffer * outbuf);
 
 enum
 {
@@ -58,11 +60,12 @@ gst_omx_h264_dec_class_init (GstOMXH264DecClass * klass)
   videodec_class->is_format_change =
       GST_DEBUG_FUNCPTR (gst_omx_h264_dec_is_format_change);
   videodec_class->set_format = GST_DEBUG_FUNCPTR (gst_omx_h264_dec_set_format);
+  videodec_class->copy_frame = GST_DEBUG_FUNCPTR (gst_omx_h264_dec_copy_frame);
 
   videodec_class->cdata.default_sink_template_caps = "video/x-h264, "
       "parsed=(boolean) true, "
       "alignment=(string) au, "
-      "stream-format=(string) byte-stream, "
+      "stream-format=(string) avc, "
       "width=(int) [1,MAX], " "height=(int) [1,MAX]";
 
   gst_element_class_set_static_metadata (element_class,
@@ -175,7 +178,6 @@ gst_omx_h264_dec_set_format (GstOMXVideoDec * dec, GstOMXPort * port,
 {
   OMX_PARAM_PORTDEFINITIONTYPE port_def;
   GstOMXH264Dec *self = GST_OMX_H264_DEC (dec);
-  OMXR_MC_VIDEO_PARAM_STREAM_STORE_UNITTYPE param;
   OMX_ERRORTYPE err;
   GstMapInfo map = GST_MAP_INFO_INIT;
   GstBuffer *new_codec_data;
@@ -185,26 +187,6 @@ gst_omx_h264_dec_set_format (GstOMXVideoDec * dec, GstOMXPort * port,
   err = gst_omx_port_update_port_definition (port, &port_def);
   if (err != OMX_ErrorNone)
     return FALSE;
-
-  GST_OMX_INIT_STRUCT (&param);
-  param.nPortIndex = GST_OMX_VIDEO_DEC (self)->dec_in_port->index;
-
-  err = gst_omx_component_get_parameter (GST_OMX_VIDEO_DEC (self)->dec,
-      OMXR_MC_IndexParamVideoStreamStoreUnit, &param);
-  if (err != OMX_ErrorNone) {
-    GST_WARNING_OBJECT (self,
-        "VideoStreamStoreUnit is not supported by component");
-    return TRUE;
-  }
-
-  param.eStoreUnit = OMXR_MC_VIDEO_StoreUnitTimestampSeparated;
-  err = gst_omx_component_set_parameter (GST_OMX_VIDEO_DEC (self)->dec,
-      OMXR_MC_IndexParamVideoStreamStoreUnit, &param);
-  if (err != OMX_ErrorNone) {
-    GST_ERROR_OBJECT (self,
-        "Error setting VideoStreamStoreUnit StoreUnitTimestampSeparated");
-    return FALSE;
-  }
 
   gst_buffer_map (state->codec_data, &map, GST_MAP_READ);
 
@@ -227,4 +209,66 @@ gst_omx_h264_dec_set_format (GstOMXVideoDec * dec, GstOMXPort * port,
   gst_buffer_replace (&state->codec_data, new_codec_data);
 
   return TRUE;
+}
+
+static gsize
+gst_omx_h264_dec_get_nal_size (GstOMXH264Dec * self, guint8 * buf)
+{
+  gsize nal_size = 0;
+  gint i;
+
+  for (i = 0; i < self->nal_length_field_size; i++)
+    nal_size = (nal_size << 8) | buf[i];
+
+  return nal_size;
+}
+
+static gsize
+gst_omx_h264_dec_copy_frame (GstOMXVideoDec * dec, GstBuffer * inbuf,
+    guint offset, GstOMXBuffer * outbuf)
+{
+  GstOMXH264Dec *self = GST_OMX_H264_DEC (dec);
+  gsize inbuf_size, nal_size, outbuf_size, output_amount = 0,
+      inbuf_consumed = 0;
+  GstMapInfo map = GST_MAP_INFO_INIT;
+  guint8 *in_data, *out_data;
+
+  gst_buffer_map (inbuf, &map, GST_MAP_READ);
+
+  /* Transform AVC format into bytestream and copy frames */
+  in_data = map.data + offset;
+  out_data = outbuf->omx_buf->pBuffer + outbuf->omx_buf->nOffset;
+  inbuf_size = gst_buffer_get_size (inbuf) - offset;
+  outbuf_size = outbuf->omx_buf->nAllocLen - outbuf->omx_buf->nOffset;
+  nal_size = gst_omx_h264_dec_get_nal_size (self, in_data);
+  while (output_amount + nal_size + 4 <= outbuf_size) {
+    guint inbuf_to_next, outbuf_to_next;
+
+    out_data[0] = 0x00;
+    out_data[1] = 0x00;
+    out_data[2] = 0x00;
+    out_data[3] = 0x01;
+
+    memcpy (out_data + 4, in_data + self->nal_length_field_size, nal_size);
+
+    outbuf_to_next = nal_size + 4;
+    out_data += outbuf_to_next;
+    output_amount += outbuf_to_next;
+
+    inbuf_to_next = nal_size + self->nal_length_field_size;
+    inbuf_consumed += inbuf_to_next;
+    if ((inbuf_size - inbuf_consumed) < self->nal_length_field_size)
+      /* the end of an input buffer */
+      break;
+
+    in_data += inbuf_to_next;
+
+    nal_size = gst_omx_h264_dec_get_nal_size (self, in_data);
+  }
+
+  gst_buffer_unmap (inbuf, &map);
+
+  outbuf->omx_buf->nFilledLen = output_amount;
+
+  return inbuf_consumed;
 }
