@@ -45,6 +45,8 @@ typedef struct _GstOMXH264DecClass GstOMXH264DecClass;
 struct _GstOMXH264Dec
 {
   GstOMXVideoDec parent;
+
+  guint nal_length_field_size;
 };
 
 struct _GstOMXH264DecClass
