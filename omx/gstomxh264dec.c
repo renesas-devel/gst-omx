@@ -63,7 +63,6 @@ gst_omx_h264_dec_class_init (GstOMXH264DecClass * klass)
   videodec_class->copy_frame = GST_DEBUG_FUNCPTR (gst_omx_h264_dec_copy_frame);
 
   videodec_class->cdata.default_sink_template_caps = "video/x-h264, "
-      "parsed=(boolean) true, "
       "alignment=(string) au, "
       "stream-format=(string) avc, "
       "width=(int) [1,MAX], " "height=(int) [1,MAX]";
