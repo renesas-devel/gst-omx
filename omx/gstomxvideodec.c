@@ -2189,14 +2189,16 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     if (gst_omx_component_get_state (self->dec,
             GST_CLOCK_TIME_NONE) != OMX_StateExecuting)
       return FALSE;
-
-    if (gst_omx_port_populate (self->dec_out_port) != OMX_ErrorNone)
-      return FALSE;
   }
 
   /* Unset flushing to allow ports to accept data again */
   gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, FALSE);
   gst_omx_port_set_flushing (self->dec_out_port, 5 * GST_SECOND, FALSE);
+
+  if (!needs_disable) {
+    if (gst_omx_port_populate (self->dec_out_port) != OMX_ErrorNone)
+      return FALSE;
+  }
 
   if (gst_omx_component_get_last_error (self->dec) != OMX_ErrorNone) {
     GST_ERROR_OBJECT (self, "Component in error state: %s (0x%08x)",
