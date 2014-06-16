@@ -40,6 +40,7 @@
 #include "gstomxh264enc.h"
 #include "gstomxh263enc.h"
 #include "gstomxaacenc.h"
+#include "gstomxaacdec.h"
 
 GST_DEBUG_CATEGORY (gstomx_debug);
 #define GST_CAT_DEFAULT gstomx_debug
@@ -2346,6 +2347,7 @@ static const GGetTypeFunction types[] = {
 #ifdef HAVE_THEORA
       , gst_omx_theora_dec_get_type
 #endif
+  , gst_omx_aac_dec_get_type
 };
 
 struct TypeOffest
@@ -2358,6 +2360,7 @@ static const struct TypeOffest base_types[] = {
   {gst_omx_video_dec_get_type, G_STRUCT_OFFSET (GstOMXVideoDecClass, cdata)},
   {gst_omx_video_enc_get_type, G_STRUCT_OFFSET (GstOMXVideoEncClass, cdata)},
   {gst_omx_audio_enc_get_type, G_STRUCT_OFFSET (GstOMXAudioEncClass, cdata)},
+  {gst_omx_audio_dec_get_type, G_STRUCT_OFFSET (GstOMXAudioDecClass, cdata)},
 };
 
 static GKeyFile *config = NULL;

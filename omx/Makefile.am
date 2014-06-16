@@ -15,6 +15,7 @@ libgstomx_la_SOURCES = \
 	gstomxvideodec.c \
 	gstomxvideoenc.c \
 	gstomxaudioenc.c \
+	gstomxaudiodec.c \
 	gstomxmjpegdec.c \
 	gstomxmpeg4videodec.c \
 	gstomxmpeg2videodec.c \
@@ -26,13 +27,15 @@ libgstomx_la_SOURCES = \
 	gstomxmpeg4videoenc.c \
 	gstomxh264enc.c \
 	gstomxh263enc.c \
-	gstomxaacenc.c
+	gstomxaacenc.c \
+	gstomxaacdec.c
 
 noinst_HEADERS = \
 	gstomx.h \
 	gstomxvideodec.h \
 	gstomxvideoenc.h \
 	gstomxaudioenc.h \
+	gstomxaudiodec.h \
 	gstomxmjpegdec.h \
 	gstomxmpeg2videodec.h \
 	gstomxmpeg4videodec.h \
@@ -44,7 +47,8 @@ noinst_HEADERS = \
 	gstomxmpeg4videoenc.h \
 	gstomxh264enc.h \
 	gstomxh263enc.h \
-	gstomxaacenc.h
+	gstomxaacenc.h \
+	gstomxaacdec.h
 
 if !HAVE_EXTERNAL_OMX
 OMX_INCLUDEPATH = -I$(abs_srcdir)/openmax
