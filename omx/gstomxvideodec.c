@@ -2280,6 +2280,11 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     /* Need to allocate buffers to reach Idle state */
     if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
       return FALSE;
+
+    self->out_port_pool =
+        gst_omx_buffer_pool_new (GST_ELEMENT_CAST (self), self->dec,
+        self->dec_out_port);
+
     if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
       return FALSE;
 
