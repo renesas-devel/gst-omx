@@ -507,16 +507,6 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
     g_return_val_if_fail (buf != NULL, GST_FLOW_ERROR);
     *buffer = buf;
     ret = GST_FLOW_OK;
-
-    /* If it's our own memory we have to set the sizes */
-    if (!pool->other_pool) {
-      GstMemory *mem = gst_buffer_peek_memory (*buffer, 0);
-
-      g_assert (mem
-          && g_strcmp0 (mem->allocator->mem_type, GST_OMX_MEMORY_TYPE) == 0);
-      mem->size = ((GstOMXMemory *) mem)->buf->omx_buf->nFilledLen;
-      mem->offset = ((GstOMXMemory *) mem)->buf->omx_buf->nOffset;
-    }
   } else {
     /* Acquire any buffer that is available to be filled by upstream */
     ret =
