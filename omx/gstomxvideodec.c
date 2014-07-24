@@ -133,7 +133,7 @@ gst_omx_memory_allocator_init (GstOMXMemoryAllocator * allocator)
 
 static GstMemory *
 gst_omx_memory_allocator_alloc (GstAllocator * allocator, GstMemoryFlags flags,
-    GstOMXBuffer * buf)
+    GstOMXBuffer * buf, gsize offset, gsize size)
 {
   GstOMXMemory *mem;
 
@@ -148,7 +148,7 @@ gst_omx_memory_allocator_alloc (GstAllocator * allocator, GstMemoryFlags flags,
   /* the shared memory is always readonly */
   gst_memory_init (GST_MEMORY_CAST (mem), flags, allocator, NULL,
       buf->omx_buf->nAllocLen, buf->port->port_def.nBufferAlignment,
-      0, buf->omx_buf->nAllocLen);
+      offset, size);
 
   mem->buf = buf;
 
@@ -408,7 +408,8 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
   } else {
     GstMemory *mem;
 
-    mem = gst_omx_memory_allocator_alloc (pool->allocator, 0, omx_buf);
+    mem = gst_omx_memory_allocator_alloc (pool->allocator, 0, omx_buf, 0,
+        omx_buf->omx_buf->nAllocLen);
     buf = gst_buffer_new ();
     gst_buffer_append_memory (buf, mem);
     g_ptr_array_add (pool->buffers, buf);
