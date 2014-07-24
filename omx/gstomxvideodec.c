@@ -406,48 +406,59 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
       }
     }
   } else {
-    GstMemory *mem;
+    gsize offset[4] = { 0, };
+    gint stride[4] = { 0, };
+    gsize plane_size[4] = { 0, };
+    guint n_planes;
+    gint i;
 
-    mem = gst_omx_memory_allocator_alloc (pool->allocator, 0, omx_buf, 0,
-        omx_buf->omx_buf->nAllocLen);
+    switch (pool->video_info.finfo->format) {
+      case GST_VIDEO_FORMAT_I420:
+        offset[0] = 0;
+        stride[0] = pool->port->port_def.format.video.nStride;
+        offset[1] = stride[0] * pool->port->port_def.format.video.nSliceHeight;
+        stride[1] = pool->port->port_def.format.video.nStride / 2;
+        offset[2] =
+            offset[1] +
+            stride[1] * (pool->port->port_def.format.video.nSliceHeight / 2);
+        stride[2] = pool->port->port_def.format.video.nStride / 2;
+        plane_size[0] = pool->port->port_def.format.video.nStride *
+            pool->port->port_def.format.video.nFrameHeight;
+        plane_size[1] = plane_size[2] = plane_size[0] / 4;
+
+        n_planes = 3;
+        break;
+      case GST_VIDEO_FORMAT_NV12:
+        offset[0] = 0;
+        stride[0] = pool->port->port_def.format.video.nStride;
+        offset[1] = stride[0] * pool->port->port_def.format.video.nSliceHeight;
+        stride[1] = pool->port->port_def.format.video.nStride;
+        plane_size[0] = pool->port->port_def.format.video.nStride *
+            pool->port->port_def.format.video.nFrameHeight;
+        plane_size[1] = plane_size[0] / 2;
+
+        n_planes = 2;
+        break;
+      default:
+        g_assert_not_reached ();
+        break;
+    }
+
     buf = gst_buffer_new ();
-    gst_buffer_append_memory (buf, mem);
+
+    for (i = 0; i < n_planes; i++)
+      gst_buffer_append_memory (buf,
+          gst_omx_memory_allocator_alloc (pool->allocator, 0, omx_buf,
+              offset[i], plane_size[i]));
+
     g_ptr_array_add (pool->buffers, buf);
 
-    if (pool->add_videometa) {
-      gsize offset[4] = { 0, };
-      gint stride[4] = { 0, };
-
-      switch (pool->video_info.finfo->format) {
-        case GST_VIDEO_FORMAT_I420:
-          offset[0] = 0;
-          stride[0] = pool->port->port_def.format.video.nStride;
-          offset[1] =
-              stride[0] * pool->port->port_def.format.video.nSliceHeight;
-          stride[1] = pool->port->port_def.format.video.nStride / 2;
-          offset[2] =
-              offset[1] +
-              stride[1] * (pool->port->port_def.format.video.nSliceHeight / 2);
-          stride[2] = pool->port->port_def.format.video.nStride / 2;
-          break;
-        case GST_VIDEO_FORMAT_NV12:
-          offset[0] = 0;
-          stride[0] = pool->port->port_def.format.video.nStride;
-          offset[1] =
-              stride[0] * pool->port->port_def.format.video.nSliceHeight;
-          stride[1] = pool->port->port_def.format.video.nStride;
-          break;
-        default:
-          g_assert_not_reached ();
-          break;
-      }
-
+    if (pool->add_videometa)
       gst_buffer_add_video_meta_full (buf, GST_VIDEO_FRAME_FLAG_NONE,
           GST_VIDEO_INFO_FORMAT (&pool->video_info),
           GST_VIDEO_INFO_WIDTH (&pool->video_info),
           GST_VIDEO_INFO_HEIGHT (&pool->video_info),
           GST_VIDEO_INFO_N_PLANES (&pool->video_info), offset, stride);
-    }
   }
 
   gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buf),
