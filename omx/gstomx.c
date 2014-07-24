@@ -2099,6 +2099,8 @@ gst_omx_port_populate_unlocked (GstOMXPort * port)
        */
       buf->omx_buf->nFlags = 0;
 
+      buf->used = TRUE;
+
       err = OMX_FillThisBuffer (comp->handle, buf->omx_buf);
 
       if (err != OMX_ErrorNone) {
