@@ -411,6 +411,7 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
     gsize plane_size[4] = { 0, };
     guint n_planes;
     gint i;
+    gboolean *already_acquired;
 
     switch (pool->video_info.finfo->format) {
       case GST_VIDEO_FORMAT_I420:
@@ -459,6 +460,12 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
           GST_VIDEO_INFO_WIDTH (&pool->video_info),
           GST_VIDEO_INFO_HEIGHT (&pool->video_info),
           GST_VIDEO_INFO_N_PLANES (&pool->video_info), offset, stride);
+
+    /* Initialize an already_acquired flag */
+    already_acquired = g_slice_new (gboolean);
+    *already_acquired = FALSE;
+
+    omx_buf->private_data = (void *) already_acquired;
   }
 
   gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buf),
@@ -475,6 +482,7 @@ static void
 gst_omx_buffer_pool_free_buffer (GstBufferPool * bpool, GstBuffer * buffer)
 {
   GstOMXBufferPool *pool = GST_OMX_BUFFER_POOL (bpool);
+  GstOMXBuffer *omx_buf;
 
   /* If the buffers belong to another pool, restore them now */
   GST_OBJECT_LOCK (pool);
@@ -483,6 +491,12 @@ gst_omx_buffer_pool_free_buffer (GstBufferPool * bpool, GstBuffer * buffer)
         (GstObject *) pool->other_pool);
   }
   GST_OBJECT_UNLOCK (pool);
+
+  omx_buf =
+      gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (buffer),
+      gst_omx_buffer_data_quark);
+
+  g_slice_free (gboolean, omx_buf->private_data);
 
   gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buffer),
       gst_omx_buffer_data_quark, NULL, NULL);
@@ -500,12 +514,22 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
 
   if (pool->port->port_def.eDir == OMX_DirOutput) {
     GstBuffer *buf;
+    GstOMXBuffer *omx_buf;
+    gboolean *already_acquired;
 
     g_return_val_if_fail (pool->current_buffer_index != -1, GST_FLOW_ERROR);
 
     buf = g_ptr_array_index (pool->buffers, pool->current_buffer_index);
     g_return_val_if_fail (buf != NULL, GST_FLOW_ERROR);
     *buffer = buf;
+
+    omx_buf =
+        gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (buf),
+        gst_omx_buffer_data_quark);
+
+    already_acquired = (gboolean *) omx_buf->private_data;
+    *already_acquired = TRUE;
+
     ret = GST_FLOW_OK;
   } else {
     /* Acquire any buffer that is available to be filled by upstream */
@@ -527,10 +551,16 @@ gst_omx_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
   g_assert (pool->component && pool->port);
 
   if (!pool->allocating && !pool->deactivated) {
+    gboolean *already_acquired;
+
     omx_buf =
         gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (buffer),
         gst_omx_buffer_data_quark);
-    if (pool->port->port_def.eDir == OMX_DirOutput && !omx_buf->used) {
+
+    already_acquired = (gboolean *) omx_buf->private_data;
+
+    if (pool->port->port_def.eDir == OMX_DirOutput && !omx_buf->used &&
+        *already_acquired) {
       /* Release back to the port, can be filled again */
       err = gst_omx_port_release_buffer (pool->port, omx_buf);
       if (err != OMX_ErrorNone) {
@@ -538,6 +568,7 @@ gst_omx_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
             ("Failed to relase output buffer to component: %s (0x%08x)",
                 gst_omx_error_to_string (err), err));
       }
+      *already_acquired = FALSE;
     } else if (!omx_buf->used) {
       /* TODO: Implement.
        *
