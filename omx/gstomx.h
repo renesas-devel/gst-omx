@@ -255,6 +255,9 @@ struct _GstOMXBuffer {
 
   /* TRUE if this is an EGLImage */
   gboolean eglimage;
+
+  /* To set specific data for each function */
+  void *private_data;
 };
 
 struct _GstOMXClassData {
