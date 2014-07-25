@@ -199,6 +199,8 @@ static GQuark gst_omx_buffer_data_quark = 0;
 typedef struct _GstOMXBufferPool GstOMXBufferPool;
 typedef struct _GstOMXBufferPoolClass GstOMXBufferPoolClass;
 
+typedef struct _GstOMXVideoDecBufferData GstOMXVideoDecBufferData;
+
 struct _GstOMXBufferPool
 {
   GstVideoBufferPool parent;
@@ -239,6 +241,11 @@ struct _GstOMXBufferPool
 struct _GstOMXBufferPoolClass
 {
   GstVideoBufferPoolClass parent_class;
+};
+
+struct _GstOMXVideoDecBufferData
+{
+  gboolean already_acquired;
 };
 
 GType gst_omx_buffer_pool_get_type (void);
@@ -411,7 +418,7 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
     gsize plane_size[4] = { 0, };
     guint n_planes;
     gint i;
-    gboolean *already_acquired;
+    GstOMXVideoDecBufferData *vdbuf_data;
 
     switch (pool->video_info.finfo->format) {
       case GST_VIDEO_FORMAT_I420:
@@ -462,10 +469,10 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
           GST_VIDEO_INFO_N_PLANES (&pool->video_info), offset, stride);
 
     /* Initialize an already_acquired flag */
-    already_acquired = g_slice_new (gboolean);
-    *already_acquired = FALSE;
+    vdbuf_data = g_slice_new (GstOMXVideoDecBufferData);
+    vdbuf_data->already_acquired = FALSE;
 
-    omx_buf->private_data = (void *) already_acquired;
+    omx_buf->private_data = (void *) vdbuf_data;
   }
 
   gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buf),
@@ -515,7 +522,7 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
   if (pool->port->port_def.eDir == OMX_DirOutput) {
     GstBuffer *buf;
     GstOMXBuffer *omx_buf;
-    gboolean *already_acquired;
+    GstOMXVideoDecBufferData *vdbuf_data;
 
     g_return_val_if_fail (pool->current_buffer_index != -1, GST_FLOW_ERROR);
 
@@ -527,8 +534,8 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
         gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (buf),
         gst_omx_buffer_data_quark);
 
-    already_acquired = (gboolean *) omx_buf->private_data;
-    *already_acquired = TRUE;
+    vdbuf_data = (GstOMXVideoDecBufferData *) omx_buf->private_data;
+    vdbuf_data->already_acquired = TRUE;
 
     ret = GST_FLOW_OK;
   } else {
@@ -551,16 +558,16 @@ gst_omx_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
   g_assert (pool->component && pool->port);
 
   if (pool->allocating && !pool->deactivated) {
-    gboolean *already_acquired;
+    GstOMXVideoDecBufferData *vdbuf_data;
 
     omx_buf =
         gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (buffer),
         gst_omx_buffer_data_quark);
 
-    already_acquired = (gboolean *) omx_buf->private_data;
+    vdbuf_data = (GstOMXVideoDecBufferData *) omx_buf->private_data;
 
     if (pool->port->port_def.eDir == OMX_DirOutput && !omx_buf->used &&
-        *already_acquired) {
+        vdbuf_data->already_acquired) {
       /* Release back to the port, can be filled again */
       err = gst_omx_port_release_buffer (pool->port, omx_buf);
       if (err != OMX_ErrorNone) {
@@ -568,7 +575,7 @@ gst_omx_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
             ("Failed to relase output buffer to component: %s (0x%08x)",
                 gst_omx_error_to_string (err), err));
       }
-      *already_acquired = FALSE;
+      vdbuf_data->already_acquired = FALSE;
     } else if (!omx_buf->used) {
       /* TODO: Implement.
        *
@@ -1652,7 +1659,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
   if (frame
       && (deadline = gst_video_decoder_get_max_decode_time
           (GST_VIDEO_DECODER (self), frame)) < 0) {
-    gboolean *already_acquired;
+    GstOMXVideoDecBufferData *vdbuf_data;
 
     GST_WARNING_OBJECT (self,
         "Frame is too late, dropping (deadline %" GST_TIME_FORMAT ")",
@@ -1664,8 +1671,8 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
      * sets the already_acquired flag a GstOMXBuffer buffer has
      * in the case of the frame dropping, similar to the buffer acquisition.
      */
-    already_acquired = (gboolean *) buf->private_data;
-    *already_acquired = TRUE;
+    vdbuf_data = (GstOMXVideoDecBufferData *) buf->private_data;
+    vdbuf_data->already_acquired = TRUE;
   } else if (!frame && buf->omx_buf->nFilledLen > 0) {
     GstBuffer *outbuf;
 
