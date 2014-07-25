@@ -550,7 +550,7 @@ gst_omx_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
 
   g_assert (pool->component && pool->port);
 
-  if (!pool->allocating && !pool->deactivated) {
+  if (pool->allocating && !pool->deactivated) {
     gboolean *already_acquired;
 
     omx_buf =
