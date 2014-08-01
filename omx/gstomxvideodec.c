@@ -1594,6 +1594,8 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         format, port_def.format.video.nFrameWidth,
         port_def.format.video.nFrameHeight, self->input_state);
 
+    gst_omx_port_update_port_definition (self->dec_out_port, NULL);
+
     /* Take framerate and pixel-aspect-ratio from sinkpad caps */
 
     if (!gst_video_decoder_negotiate (GST_VIDEO_DECODER (self))) {
@@ -1606,8 +1608,6 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     gst_video_codec_state_unref (state);
 
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
-
-    gst_omx_port_update_port_definition (self->dec_out_port, NULL);
 
     if (acq_return == GST_OMX_ACQUIRE_BUFFER_RECONFIGURE) {
       err = gst_omx_video_dec_allocate_output_buffers (self);
