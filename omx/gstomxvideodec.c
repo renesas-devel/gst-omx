@@ -1689,7 +1689,15 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
 
       n = port->buffers->len;
       for (i = 0; i < n; i++) {
-        GstOMXBuffer *tmp = g_ptr_array_index (port->buffers, i);
+        GstBuffer *outbuf;
+        GstOMXBuffer *tmp;
+
+        outbuf =
+            g_ptr_array_index (GST_OMX_BUFFER_POOL (self->
+                out_port_pool)->buffers, i);
+        tmp =
+            gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (outbuf),
+            gst_omx_buffer_data_quark);
 
         if (tmp == buf)
           break;
@@ -1723,7 +1731,15 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
 
       n = port->buffers->len;
       for (i = 0; i < n; i++) {
-        GstOMXBuffer *tmp = g_ptr_array_index (port->buffers, i);
+        GstBuffer *outbuf;
+        GstOMXBuffer *tmp;
+
+        outbuf =
+            g_ptr_array_index (GST_OMX_BUFFER_POOL (self->
+                out_port_pool)->buffers, i);
+        tmp =
+            gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (outbuf),
+            gst_omx_buffer_data_quark);
 
         if (tmp == buf)
           break;
