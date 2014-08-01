@@ -576,7 +576,7 @@ gst_omx_buffer_pool_release_buffer (GstBufferPool * bpool, GstBuffer * buffer)
                 gst_omx_error_to_string (err), err));
       }
       vdbuf_data->already_acquired = FALSE;
-    } else if (!omx_buf->used) {
+    } else if (pool->port->port_def.eDir == OMX_DirInput && !omx_buf->used) {
       /* TODO: Implement.
        *
        * If not used (i.e. was not passed to the component) this should do
