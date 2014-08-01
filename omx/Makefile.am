@@ -65,6 +65,7 @@ libgstomx_la_LIBADD = \
 	-lgstaudio-@GST_API_VERSION@ \
 	-lgstpbutils-@GST_API_VERSION@ \
 	-lgstvideo-@GST_API_VERSION@ \
+	-lgstallocators-@GST_API_VERSION@ \
 	$(GST_BASE_LIBS) \
 	$(GST_LIBS)
 libgstomx_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
