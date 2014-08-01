@@ -2752,22 +2752,55 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
 {
   GstBufferPool *pool;
   GstStructure *config;
+  GstOMXVideoDec *self;
+  GstCaps *caps;
 
-  if (!GST_VIDEO_DECODER_CLASS
-      (gst_omx_video_dec_parent_class)->decide_allocation (bdec, query))
-    return FALSE;
+  self = GST_OMX_VIDEO_DEC (bdec);
 
-  g_assert (gst_query_get_n_allocation_pools (query) > 0);
-  gst_query_parse_nth_allocation_pool (query, 0, &pool, NULL, NULL, NULL);
-  g_assert (pool != NULL);
+  if (self->out_port_pool) {
+    /* Set pool parameters to our own configuration */
+    config = gst_buffer_pool_get_config (self->out_port_pool);
 
-  config = gst_buffer_pool_get_config (pool);
-  if (gst_query_find_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL)) {
     gst_buffer_pool_config_add_option (config,
         GST_BUFFER_POOL_OPTION_VIDEO_META);
+
+    gst_query_parse_allocation (query, &caps, NULL);
+    gst_buffer_pool_config_set_params (config, caps,
+        self->dec_out_port->port_def.nBufferSize,
+        self->dec_out_port->port_def.nBufferCountActual,
+        self->dec_out_port->port_def.nBufferCountActual);
+
+    if (!gst_buffer_pool_set_config (self->out_port_pool, config)) {
+      GST_ERROR_OBJECT (self, "Failed to set config on internal pool");
+      gst_object_unref (self->out_port_pool);
+      self->out_port_pool = NULL;
+      return FALSE;
+    }
+
+    GST_OMX_BUFFER_POOL (self->out_port_pool)->allocating = TRUE;
+
+    gst_query_set_nth_allocation_pool (query, 0, self->out_port_pool,
+        self->dec_out_port->port_def.nBufferSize,
+        self->dec_out_port->port_def.nBufferCountActual,
+        self->dec_out_port->port_def.nBufferCountActual);
+    gst_object_unref (self->out_port_pool);
+  } else {
+    if (!GST_VIDEO_DECODER_CLASS
+        (gst_omx_video_dec_parent_class)->decide_allocation (bdec, query))
+      return FALSE;
+
+    g_assert (gst_query_get_n_allocation_pools (query) > 0);
+    gst_query_parse_nth_allocation_pool (query, 0, &pool, NULL, NULL, NULL);
+    g_assert (pool != NULL);
+
+    config = gst_buffer_pool_get_config (pool);
+    if (gst_query_find_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL)) {
+      gst_buffer_pool_config_add_option (config,
+          GST_BUFFER_POOL_OPTION_VIDEO_META);
+    }
+    gst_buffer_pool_set_config (pool, config);
+    gst_object_unref (pool);
   }
-  gst_buffer_pool_set_config (pool, config);
-  gst_object_unref (pool);
 
   return TRUE;
 }
