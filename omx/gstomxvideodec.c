@@ -244,6 +244,10 @@ struct _GstOMXBufferPool
    * wrapped
    */
   gint current_buffer_index;
+
+  /* TRUE if the downstream buffer pool can handle
+     "videosink_buffer_creation_request" query */
+  gboolean vsink_buf_req_supported;
 };
 
 struct _GstOMXBufferPoolClass
@@ -775,6 +779,7 @@ gst_omx_buffer_pool_new (GstElement * element, GstOMXComponent * component,
   pool->element = gst_object_ref (element);
   pool->component = component;
   pool->port = port;
+  pool->vsink_buf_req_supported = FALSE;
 
   return GST_BUFFER_POOL (pool);
 }
@@ -2892,6 +2897,16 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
   self = GST_OMX_VIDEO_DEC (bdec);
 
   if (self->out_port_pool) {
+    g_assert (gst_query_get_n_allocation_pools (query) > 0);
+    gst_query_parse_nth_allocation_pool (query, 0, &pool, NULL, NULL, NULL);
+    g_assert (pool != NULL);
+
+    config = gst_buffer_pool_get_config (pool);
+    gst_structure_get_boolean (config,
+        "videosink_buffer_creation_request_supported",
+        &GST_OMX_BUFFER_POOL (self->out_port_pool)->vsink_buf_req_supported);
+    gst_object_unref (pool);
+
     /* Set pool parameters to our own configuration */
     config = gst_buffer_pool_get_config (self->out_port_pool);
 
