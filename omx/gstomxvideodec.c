@@ -551,6 +551,51 @@ gst_omx_buffer_pool_free_buffer (GstBufferPool * bpool, GstBuffer * buffer)
       buffer);
 }
 
+#ifdef HAVE_MMNGRBUF
+static GstBuffer *
+gst_omx_buffer_pool_request_videosink_buffer_creation (GstOMXBufferPool * pool,
+    gint dmabuf_fd[GST_VIDEO_MAX_PLANES], gint stride[GST_VIDEO_MAX_PLANES])
+{
+  GstQuery *query;
+  GValue val = { 0, };
+  GstStructure *structure;
+  const GValue *value;
+  GstBuffer *buffer;
+
+  g_value_init (&val, G_TYPE_POINTER);
+  g_value_set_pointer (&val, (gpointer) pool->allocator);
+
+  structure = gst_structure_new ("videosink_buffer_creation_request",
+      "width", G_TYPE_INT, pool->port->port_def.format.video.nFrameWidth,
+      "height", G_TYPE_INT, pool->port->port_def.format.video.nFrameHeight,
+      "stride", G_TYPE_INT, stride[0], "dmabuf", G_TYPE_INT, dmabuf_fd[0],
+      "allocator", G_TYPE_POINTER, &val,
+      "format", G_TYPE_STRING,
+      gst_video_format_to_string (pool->video_info.finfo->format), NULL);
+
+  query = gst_query_new_custom (GST_QUERY_CUSTOM, structure);
+
+  GST_DEBUG_OBJECT (pool, "send a videosink_buffer_creation_request query");
+
+  if (!gst_pad_peer_query (GST_VIDEO_DECODER_SRC_PAD (pool->element), query)) {
+    GST_ERROR_OBJECT (pool, "videosink_buffer_creation_request query failed");
+    return NULL;
+  }
+
+  value = gst_structure_get_value (structure, "buffer");
+  buffer = gst_value_get_buffer (value);
+  if (buffer == NULL) {
+    GST_ERROR_OBJECT (pool,
+        "could not get a buffer from videosink_buffer_creation query");
+    return NULL;
+  }
+
+  gst_query_unref (query);
+
+  return buffer;
+}
+#endif
+
 static GstFlowReturn
 gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
     GstBuffer ** buffer, GstBufferPoolAcquireParams * params)
@@ -618,18 +663,23 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
             vdbuf_data->id_export[i], phys_addr);
       }
 
-      new_buf = gst_buffer_new ();
-      for (i = 0; i < n_planes; i++)
-        gst_buffer_append_memory (new_buf,
-            gst_dmabuf_allocator_alloc (pool->allocator, dmabuf_fd[i],
-                plane_size[i]));
+      if (pool->vsink_buf_req_supported)
+        new_buf = gst_omx_buffer_pool_request_videosink_buffer_creation (pool,
+            dmabuf_fd, vmeta->stride);
+      else {
+        new_buf = gst_buffer_new ();
+        for (i = 0; i < n_planes; i++)
+          gst_buffer_append_memory (new_buf,
+              gst_dmabuf_allocator_alloc (pool->allocator, dmabuf_fd[i],
+                  plane_size[i]));
 
-      gst_buffer_add_video_meta_full (new_buf, GST_VIDEO_FRAME_FLAG_NONE,
-          GST_VIDEO_INFO_FORMAT (&pool->video_info),
-          GST_VIDEO_INFO_WIDTH (&pool->video_info),
-          GST_VIDEO_INFO_HEIGHT (&pool->video_info),
-          GST_VIDEO_INFO_N_PLANES (&pool->video_info), vmeta->offset,
-          vmeta->stride);
+        gst_buffer_add_video_meta_full (new_buf, GST_VIDEO_FRAME_FLAG_NONE,
+            GST_VIDEO_INFO_FORMAT (&pool->video_info),
+            GST_VIDEO_INFO_WIDTH (&pool->video_info),
+            GST_VIDEO_INFO_HEIGHT (&pool->video_info),
+            GST_VIDEO_INFO_N_PLANES (&pool->video_info), vmeta->offset,
+            vmeta->stride);
+      }
 
       g_ptr_array_remove_index (pool->buffers, pool->current_buffer_index);
 
