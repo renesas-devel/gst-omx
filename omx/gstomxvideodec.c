@@ -561,17 +561,32 @@ gst_omx_buffer_pool_request_videosink_buffer_creation (GstOMXBufferPool * pool,
   GstStructure *structure;
   const GValue *value;
   GstBuffer *buffer;
+  GArray *dmabuf_array;
+  GArray *stride_array;
+  gint n_planes;
+  gint i;
 
   g_value_init (&val, G_TYPE_POINTER);
   g_value_set_pointer (&val, (gpointer) pool->allocator);
 
+  dmabuf_array = g_array_new (FALSE, FALSE, sizeof (gint));
+  stride_array = g_array_new (FALSE, FALSE, sizeof (gint));
+
+  n_planes = GST_VIDEO_INFO_N_PLANES (&pool->video_info);
+  for (i = 0; i < n_planes; i++) {
+    g_array_append_val (dmabuf_array, dmabuf_fd[i]);
+    g_array_append_val (stride_array, stride[i]);
+  }
+
   structure = gst_structure_new ("videosink_buffer_creation_request",
       "width", G_TYPE_INT, pool->port->port_def.format.video.nFrameWidth,
       "height", G_TYPE_INT, pool->port->port_def.format.video.nFrameHeight,
-      "stride", G_TYPE_INT, stride[0], "dmabuf", G_TYPE_INT, dmabuf_fd[0],
+      "stride", G_TYPE_ARRAY, stride_array,
+      "dmabuf", G_TYPE_ARRAY, dmabuf_array,
       "allocator", G_TYPE_POINTER, &val,
       "format", G_TYPE_STRING,
-      gst_video_format_to_string (pool->video_info.finfo->format), NULL);
+      gst_video_format_to_string (pool->video_info.finfo->format),
+      "n_planes", G_TYPE_INT, n_planes, NULL);
 
   query = gst_query_new_custom (GST_QUERY_CUSTOM, structure);
 
@@ -591,6 +606,9 @@ gst_omx_buffer_pool_request_videosink_buffer_creation (GstOMXBufferPool * pool,
   }
 
   gst_query_unref (query);
+
+  g_array_free (dmabuf_array, TRUE);
+  g_array_free (stride_array, TRUE);
 
   return buffer;
 }
