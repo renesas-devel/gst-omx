@@ -1084,6 +1084,8 @@ gst_omx_video_dec_finalize (GObject * object)
   g_cond_clear (&self->drain_cond);
 
   G_OBJECT_CLASS (gst_omx_video_dec_parent_class)->finalize (object);
+
+  self->out_port_pool = NULL;
 }
 
 static GstStateChangeReturn
@@ -1574,8 +1576,6 @@ gst_omx_video_dec_deallocate_output_buffers (GstOMXVideoDec * self)
   if (self->out_port_pool) {
     gst_buffer_pool_set_active (self->out_port_pool, FALSE);
     GST_OMX_BUFFER_POOL (self->out_port_pool)->deactivated = TRUE;
-    gst_object_unref (self->out_port_pool);
-    self->out_port_pool = NULL;
   }
   err = gst_omx_port_deallocate_buffers (self->dec_out_port);
 
