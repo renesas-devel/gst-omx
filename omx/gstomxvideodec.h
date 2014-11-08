@@ -82,6 +82,9 @@ struct _GstOMXVideoDec
   /* Set TRUE to transfer decoded data using dmabuf */
   gboolean use_dmabuf;
 
+  /* Set TRUE to not using frame reorder */
+  gboolean no_reorder;
+
   GstFlowReturn downstream_flow_ret;
 };
 

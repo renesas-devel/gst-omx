@@ -239,7 +239,11 @@ gst_omx_h264_dec_set_format (GstOMXVideoDec * dec, GstOMXPort * port,
     GST_OMX_INIT_STRUCT (&sReorder);
     sReorder.nPortIndex = dec->dec_out_port->index;  /* default */
 
-    sReorder.bReorder = OMX_TRUE;
+    if (dec->no_reorder != FALSE)
+      sReorder.bReorder = OMX_FALSE;
+    else
+      sReorder.bReorder = OMX_TRUE;
+
     gst_omx_component_set_parameter
       (dec->dec, OMXR_MC_IndexParamVideoReorder, &sReorder);
 
