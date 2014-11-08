@@ -62,6 +62,13 @@ struct _GstOMXMemoryAllocatorClass
   GstAllocatorClass parent_class;
 };
 
+/* User data and function for release OMX buffer in no-copy mode */
+struct GstOMXBufferCallback
+{
+  GstOMXPort   * out_port;
+  GstOMXBuffer * buf;
+};
+
 #define GST_OMX_MEMORY_TYPE "openmax"
 #define DEFAULT_FRAME_PER_SECOND  30
 
@@ -921,6 +928,7 @@ static void gst_omx_video_dec_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec);
 static void gst_omx_video_dec_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec);
+static void GstOMXBufCallbackfunc (struct GstOMXBufferCallback *);
 
 enum
 {
@@ -1635,6 +1643,20 @@ gst_omx_video_dec_deallocate_output_buffers (GstOMXVideoDec * self)
   return err;
 }
 
+static void GstOMXBufCallbackfunc (struct GstOMXBufferCallback *release)
+{
+  gint i;
+
+  if (!release)
+    return;
+
+  if (release->buf != NULL) {
+    gst_omx_port_release_buffer (release->out_port, release->buf);
+  }
+
+  g_free (release);
+}
+
 static GstBuffer *
 gst_omx_video_dec_create_buffer_from_omx_output (GstOMXVideoDec * self,
     GstOMXBuffer * buf)
@@ -1695,12 +1717,23 @@ gst_omx_video_dec_create_buffer_from_omx_output (GstOMXVideoDec * self,
     used_size = stride[i] *
         GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT (vinfo->finfo, i, height);
 
-    /* Only release OMX buffer one time. Do not add callback
-     * function to other planes
-     * (These planes are from same OMX buffer) */
-    mem = gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE,
-        buf->omx_buf->pBuffer + buf->omx_buf->nOffset + offs,
-        plane_size, 0, used_size, NULL, NULL);
+    if (i == 0) {
+      struct GstOMXBufferCallback *release;
+      release = g_malloc (sizeof(struct GstOMXBufferCallback));
+      release->out_port = self->dec_out_port;
+      release->buf = buf;
+      /* Add callback function to release OMX buffer to first plane */
+      mem = gst_memory_new_wrapped (GST_MEMORY_FLAG_READONLY,
+          buf->omx_buf->pBuffer + buf->omx_buf->nOffset + offs,
+          plane_size, 0, used_size, release, GstOMXBufCallbackfunc);
+    }
+    else
+      /* Only release OMX buffer one time. Do not add callback
+       * function to other planes
+       * (These planes are from same OMX buffer) */
+      mem = gst_memory_new_wrapped (GST_MEMORY_FLAG_READONLY,
+          buf->omx_buf->pBuffer + buf->omx_buf->nOffset + offs,
+          plane_size, 0, used_size, NULL, NULL);
 
     gst_buffer_append_memory (newbuf, mem);
 
@@ -2039,32 +2072,37 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
       frame = NULL;
       buf = NULL;
     } else {
-      if ((flow_ret =
+      if (self->no_copy)
+      {
+        /*
+         * Replace output buffer from the bufferpool of the downstream plugin
+         * with the one created with
+         * gst_omx_video_dec_create_buffer_from_omx_output(), which sets each
+         * plane address of an OMX output buffer to a new GstBuffer in order to
+         * pass output image data to the downstream plugin without memcpy.
+         */
+        frame->output_buffer =
+          gst_omx_video_dec_create_buffer_from_omx_output (self, buf);
+        if (!frame->output_buffer) {
+          GST_ERROR_OBJECT (self, "failed to create an output buffer");
+          flow_ret = GST_FLOW_ERROR;
+          goto flow_error;
+        }
+        gst_buffer_ref (frame->output_buffer);
+        flow_ret =
+            gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
+        gst_buffer_unref (frame->output_buffer);
+        frame = NULL;
+        buf = NULL;
+      } else {
+        if ((flow_ret =
               gst_video_decoder_allocate_output_frame (GST_VIDEO_DECODER
                   (self), frame)) == GST_FLOW_OK) {
-        /* FIXME: This currently happens because of a race condition too.
-         * We first need to reconfigure the output port and then the input
-         * port if both need reconfiguration.
-         */
-
-        if (self->no_copy)
-        {
-          /*
-           * Replace output buffer from the bufferpool of the downstream plugin
-           * with the one created with
-           * gst_omx_video_dec_create_buffer_from_omx_output(), which sets each
-           * plane address of an OMX output buffer to a new GstBuffer in order to
-           * pass output image data to the downstream plugin without memcpy.
+          /* FIXME: This currently happens because of a race condition too.
+           * We first need to reconfigure the output port and then the input
+           * port if both need reconfiguration.
            */
-          gst_buffer_unref (frame->output_buffer);
-          frame->output_buffer =
-            gst_omx_video_dec_create_buffer_from_omx_output (self, buf);
-          if (!frame->output_buffer) {
-            GST_ERROR_OBJECT (self, "failed to create an output buffer");
-            flow_ret = GST_FLOW_ERROR;
-            goto flow_error;
-          }
-        } else {
+
           if (!gst_omx_video_dec_fill_buffer (self, buf, frame->output_buffer)) {
             gst_buffer_replace (&frame->output_buffer, NULL);
             flow_ret =
@@ -2074,7 +2112,6 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
             goto invalid_buffer;
           }
         }
-
         flow_ret =
             gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
         frame = NULL;
