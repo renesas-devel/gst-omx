@@ -2298,7 +2298,6 @@ gst_omx_video_dec_get_supported_colorformats (GstOMXVideoDec * self)
   const VideoNegotiationMap format_list[] = {
     {GST_VIDEO_FORMAT_NV12, OMX_COLOR_FormatYUV420SemiPlanar},
     {GST_VIDEO_FORMAT_I420, OMX_COLOR_FormatYUV420Planar},
-    {GST_VIDEO_FORMAT_I420, OMX_COLOR_FormatYUV420PackedPlanar},
   };
 
   GST_OMX_INIT_STRUCT (&param);
