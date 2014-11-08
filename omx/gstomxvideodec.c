@@ -63,6 +63,7 @@ struct _GstOMXMemoryAllocatorClass
 };
 
 #define GST_OMX_MEMORY_TYPE "openmax"
+#define DEFAULT_FRAME_PER_SECOND  30
 
 static GstMemory *
 gst_omx_memory_allocator_alloc_dummy (GstAllocator * allocator, gsize size,
@@ -2703,13 +2704,14 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
     return GST_FLOW_OK;
   }
 
-  timestamp = frame->pts;
-  duration = frame->duration;
 
   /* Workaround for timestamp issue */
-  if (!GST_CLOCK_TIME_IS_VALID (timestamp) &&
+  if (!GST_CLOCK_TIME_IS_VALID (frame->pts) &&
         GST_CLOCK_TIME_IS_VALID (frame->dts))
-    timestamp = frame->dts;
+    frame->pts = frame->dts;
+
+  timestamp = frame->pts;
+  duration = frame->duration;
 
   if (self->downstream_flow_ret != GST_FLOW_OK) {
     gst_video_codec_frame_unref (frame);
@@ -2824,7 +2826,7 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       }
 
       buf->omx_buf->nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
-      buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);;
+      buf->omx_buf->nFilledLen = gst_buffer_get_size (codec_data);
       gst_buffer_extract (codec_data, 0,
           buf->omx_buf->pBuffer + buf->omx_buf->nOffset,
           buf->omx_buf->nFilledLen);
@@ -2856,20 +2858,29 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
     }
 
     if (timestamp != GST_CLOCK_TIME_NONE) {
-      buf->omx_buf->nTimeStamp =
-          gst_util_uint64_scale (timestamp, OMX_TICKS_PER_SECOND, GST_SECOND);
       self->last_upstream_ts = timestamp;
     } else {
-      buf->omx_buf->nTimeStamp = 0;
+      /* Video stream does not provide timestamp, try calculate */
+      if (offset == 0) {
+        if (duration != GST_CLOCK_TIME_NONE )
+          /* In case timestamp is invalid. may use duration to calculate
+           * timestamp */
+          self->last_upstream_ts += duration;
+        else
+          /* Use default fps value as last resort */
+          self->last_upstream_ts += gst_util_uint64_scale (1,
+                GST_SECOND, DEFAULT_FRAME_PER_SECOND);
+
+        timestamp = self->last_upstream_ts;
+        frame->pts = timestamp;
+      }
     }
 
-    if (duration != GST_CLOCK_TIME_NONE && offset == 0) {
-      buf->omx_buf->nTickCount =
-          gst_util_uint64_scale (buf->omx_buf->nFilledLen, duration, size);
-      self->last_upstream_ts += duration;
-    } else {
-      buf->omx_buf->nTickCount = 0;
-    }
+    buf->omx_buf->nTimeStamp =
+      gst_util_uint64_scale (timestamp, OMX_TICKS_PER_SECOND, GST_SECOND);
+
+    buf->omx_buf->nTickCount =
+          gst_util_uint64_scale (inbuf_consumed, duration, size);
 
     if (offset == 0) {
       BufferIdentification *id = g_slice_new0 (BufferIdentification);
