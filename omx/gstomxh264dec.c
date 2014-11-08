@@ -25,6 +25,8 @@
 #include <gst/gst.h>
 
 #include "gstomxh264dec.h"
+#include "OMXR_Extension_h264d.h"
+#include "OMXR_Extension_vdcmn.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_omx_h264_dec_debug_category);
 #define GST_CAT_DEFAULT gst_omx_h264_dec_debug_category
@@ -206,6 +208,53 @@ gst_omx_h264_dec_set_format (GstOMXVideoDec * dec, GstOMXPort * port,
   gst_buffer_unmap (state->codec_data, &map);
 
   gst_buffer_replace (&state->codec_data, new_codec_data);
+
+  {
+    /*
+     * Setting store unit mode (input port only)
+     *
+     * Can set:
+     *
+     *   OMXR_MC_VIDEO_StoreUnitEofSeparated    (default) :
+     *     Each OMX buffer sent to input port will contains a frame data
+     *      (many NALs, each NAL must have start code)
+     *
+     *   OMXR_MC_VIDEO_StoreUnitTimestampSeparated        :
+     *     Each OMX buffer sent to input port will contains a NAL data
+     *      (without or without start code)
+     */
+    OMXR_MC_VIDEO_PARAM_STREAM_STORE_UNITTYPE sStore;
+    GST_OMX_INIT_STRUCT (&sStore);
+    sStore.nPortIndex = dec->dec_in_port->index;
+
+    sStore.eStoreUnit = OMXR_MC_VIDEO_StoreUnitEofSeparated;  /* default */
+    gst_omx_component_set_parameter
+      (dec->dec, OMXR_MC_IndexParamVideoStreamStoreUnit, &sStore);
+
+
+    /*
+     * Setting reorder mode (output port only)
+     */
+    OMXR_MC_VIDEO_PARAM_REORDERTYPE sReorder;
+    GST_OMX_INIT_STRUCT (&sReorder);
+    sReorder.nPortIndex = dec->dec_out_port->index;  /* default */
+
+    sReorder.bReorder = OMX_TRUE;
+    gst_omx_component_set_parameter
+      (dec->dec, OMXR_MC_IndexParamVideoReorder, &sReorder);
+
+
+    /*
+     * Setting de-interlace mode (output port only)
+     */
+    OMXR_MC_VIDEO_PARAM_DEINTERLACE_MODETYPE sDeinterlace;
+    GST_OMX_INIT_STRUCT (&sDeinterlace);
+    sDeinterlace.nPortIndex = dec->dec_out_port->index;
+
+    sDeinterlace.eDeinterlace = OMXR_MC_VIDEO_Deinterlace3DHalf; /* default */
+    gst_omx_component_set_parameter
+      (dec->dec, OMXR_MC_IndexParamVideoDeinterlaceMode, &sDeinterlace);
+  }
 
   return TRUE;
 }
