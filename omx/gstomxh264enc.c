@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2011, Hewlett-Packard Development Company, L.P.
  *   Author: Sebastian Dröge <sebastian.droege@collabora.co.uk>, Collabora Ltd.
+ * Copyright (C) 2014, Renesas Electronics Corporation
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -61,7 +62,11 @@ gst_omx_h264_enc_class_init (GstOMXH264EncClass * klass)
   videoenc_class->get_caps = GST_DEBUG_FUNCPTR (gst_omx_h264_enc_get_caps);
 
   videoenc_class->cdata.default_src_template_caps = "video/x-h264, "
-      "width=(int) [ 16, 4096 ], " "height=(int) [ 16, 4096 ]";
+      "width=(int) [ 16, 4096 ], " "height=(int) [ 16, 4096 ], "
+      "stream-format= (string)byte-stream, "
+      "profile = (string){baseline, main, high}, "
+      "level = (string){1, 1b, 1.1, 1.2, 1.3, 2, 2.1, 2.2, \
+                                             3, 3.1, 3.2, 4, 4.1, 4.2}";
   videoenc_class->handle_output_frame =
       GST_DEBUG_FUNCPTR (gst_omx_h264_enc_handle_output_frame);
 
@@ -69,7 +74,7 @@ gst_omx_h264_enc_class_init (GstOMXH264EncClass * klass)
       "OpenMAX H.264 Video Encoder",
       "Codec/Encoder/Video",
       "Encode H.264 video streams",
-      "Sebastian Dröge <sebastian.droege@collabora.co.uk>");
+      "Encode video with OpenMAX IL <Renesas Electronics>");
 
   gst_omx_set_default_role (&videoenc_class->cdata, "video_encoder.avc");
 }

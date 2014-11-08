@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2011, Hewlett-Packard Development Company, L.P.
  *   Author: Sebastian Dröge <sebastian.droege@collabora.co.uk>, Collabora Ltd.
+ * Copyright (C) 2014, Renesas Electronics Corporation
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -194,8 +195,9 @@ gst_omx_video_enc_class_init (GstOMXVideoEncClass * klass)
 
   klass->cdata.default_sink_template_caps = "video/x-raw, "
       "width = " GST_VIDEO_SIZE_RANGE ", "
-      "height = " GST_VIDEO_SIZE_RANGE ", " "framerate = " GST_VIDEO_FPS_RANGE;
-
+      "height = " GST_VIDEO_SIZE_RANGE ", "
+      "framerate = " GST_VIDEO_FPS_RANGE ","
+      "format=(string) {I420, NV12}";
   klass->handle_output_frame =
       GST_DEBUG_FUNCPTR (gst_omx_video_enc_handle_output_frame);
 }
@@ -1193,7 +1195,33 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
         (info->width + port_def.nBufferAlignment - 1) &
         (~(port_def.nBufferAlignment - 1));
   else
-    port_def.format.video.nStride = GST_ROUND_UP_4 (info->width);       /* safe (?) default */
+  {
+    if (klass->cdata.hacks & GST_OMX_HACK_RENESAS_ENCMC_STRIDE_ALIGN)
+    {
+      switch (port_def.format.video.eColorFormat) {
+      case OMX_COLOR_FormatYUV420Planar: {
+        /*Renesas encode MC only support following strides*/
+        if (info->width <= 256)
+          port_def.format.video.nStride = 256;
+        else if ((info->width > 256) && (info->width <= 512))
+          port_def.format.video.nStride = 512;
+        else if ((info->width > 512) && (info->width <= 1024))
+          port_def.format.video.nStride = 1024;
+        else
+          port_def.format.video.nStride = 2048;
+        break;
+      }
+      case OMX_COLOR_FormatYUV420SemiPlanar:
+        port_def.format.video.nStride = ((info->width + 127) & ~ 127);   /* Align 128 */
+      break;
+      default:
+        port_def.format.video.nStride = GST_ROUND_UP_4 (info->width);    /* Safe (?) default */
+      break;
+      }
+    } else {
+      port_def.format.video.nStride = GST_ROUND_UP_4 (info->width);    /* Safe (?) default */
+    }
+  }
 
   port_def.format.video.nFrameHeight = info->height;
   port_def.format.video.nSliceHeight = info->height;
@@ -1263,14 +1291,9 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
     if (gst_omx_port_allocate_buffers (self->enc_in_port) != OMX_ErrorNone)
       return FALSE;
 
-    /* And disable output port */
-    if (gst_omx_port_set_enabled (self->enc_out_port, FALSE) != OMX_ErrorNone)
-      return FALSE;
-
-    if (gst_omx_port_wait_enabled (self->enc_out_port,
-            1 * GST_SECOND) != OMX_ErrorNone)
-      return FALSE;
-
+    /* Allocate for output port */
+   if (gst_omx_port_allocate_buffers (self->enc_out_port) != OMX_ErrorNone)
+       return FALSE;
     if (gst_omx_component_get_state (self->enc,
             GST_CLOCK_TIME_NONE) != OMX_StateIdle)
       return FALSE;

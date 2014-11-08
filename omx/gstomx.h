@@ -110,6 +110,14 @@ G_BEGIN_DECLS
  */
 #define GST_OMX_HACK_DEFAULT_PIXEL_ASPECT_RATIO                       G_GUINT64_CONSTANT (0x0000000000000100)
 
+/* Renesas encode MC has limitation for input stride:
+ * + Format YUV420Planar/YVU420Planar: Stride must be 256, 512, 1024,
+ * 2048
+ * + Others (YUV420SemiPlanar/YVY420SemiPlanar: Stride must be a
+ * multiple of 128
+ */
+#define GST_OMX_HACK_RENESAS_ENCMC_STRIDE_ALIGN                   G_GUINT64_CONSTANT (0x0000000000000200)
+
 
 typedef struct _GstOMXCore GstOMXCore;
 typedef struct _GstOMXPort GstOMXPort;
