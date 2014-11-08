@@ -2706,6 +2706,11 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
   timestamp = frame->pts;
   duration = frame->duration;
 
+  /* Workaround for timestamp issue */
+  if (!GST_CLOCK_TIME_IS_VALID (timestamp) &&
+        GST_CLOCK_TIME_IS_VALID (frame->dts))
+    timestamp = frame->dts;
+
   if (self->downstream_flow_ret != GST_FLOW_OK) {
     gst_video_codec_frame_unref (frame);
     return self->downstream_flow_ret;
