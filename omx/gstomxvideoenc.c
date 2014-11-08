@@ -197,7 +197,7 @@ gst_omx_video_enc_class_init (GstOMXVideoEncClass * klass)
       "width = " GST_VIDEO_SIZE_RANGE ", "
       "height = " GST_VIDEO_SIZE_RANGE ", "
       "framerate = " GST_VIDEO_FPS_RANGE ","
-      "format=(string) {I420, NV12}";
+      "format=(string) {I420, NV12, NV16}";
   klass->handle_output_frame =
       GST_DEBUG_FUNCPTR (gst_omx_video_enc_handle_output_frame);
 }
@@ -1053,7 +1053,7 @@ gst_omx_video_enc_get_supported_colorformats (GstOMXVideoEnc * self)
 
   old_index = -1;
   do {
-    VideoNegotiationMap *m;
+    VideoNegotiationMap *m, *m_extra;
 
     err =
         gst_omx_component_get_parameter (self->enc,
@@ -1078,12 +1078,22 @@ gst_omx_video_enc_get_supported_colorformats (GstOMXVideoEnc * self)
               param.eColorFormat, param.nIndex);
           break;
         case OMX_COLOR_FormatYUV420SemiPlanar:
+        {
           m = g_slice_new (VideoNegotiationMap);
           m->format = GST_VIDEO_FORMAT_NV12;
           m->type = param.eColorFormat;
           negotiation_map = g_list_append (negotiation_map, m);
           GST_DEBUG_OBJECT (self, "Component supports NV12 (%d) at index %d",
               param.eColorFormat, param.nIndex);
+        }
+        {
+          m_extra = g_slice_new (VideoNegotiationMap);
+          m_extra->format = GST_VIDEO_FORMAT_NV16;
+          m_extra->type = param.eColorFormat;
+          negotiation_map = g_list_append (negotiation_map, m_extra);
+          GST_DEBUG_OBJECT (self, "Component supports NV16 (%d) at index %d",
+              param.eColorFormat, param.nIndex);
+        }
           break;
         default:
           GST_DEBUG_OBJECT (self,
@@ -1167,6 +1177,7 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
       case GST_VIDEO_FORMAT_I420:
         port_def.format.video.eColorFormat = OMX_COLOR_FormatYUV420Planar;
         break;
+      case GST_VIDEO_FORMAT_NV16:
       case GST_VIDEO_FORMAT_NV12:
         port_def.format.video.eColorFormat = OMX_COLOR_FormatYUV420SemiPlanar;
         break;
@@ -1513,6 +1524,73 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
           dest += dest_stride;
         }
 
+      }
+      gst_video_frame_unmap (&frame);
+      ret = TRUE;
+      break;
+    }
+    case GST_VIDEO_FORMAT_NV16:{
+      gint i, j, height, width;
+      guint8 *src, *dest;
+      gint src_stride, dest_stride;
+
+      outbuf->omx_buf->nFilledLen = 0;
+
+      if (!gst_video_frame_map (&frame, info, inbuf, GST_MAP_READ)) {
+        GST_ERROR_OBJECT (self, "Invalid input buffer size");
+        ret = FALSE;
+        break;
+      }
+
+      for (i = 0; i < 2; i++) {
+        if (i == 0) {
+          dest_stride = port_def->format.video.nStride;
+          src_stride = GST_VIDEO_FRAME_COMP_STRIDE (&frame, 0);
+          /* XXX: Try this if no stride was set */
+          if (dest_stride == 0)
+            dest_stride = src_stride;
+        } else {
+          dest_stride = port_def->format.video.nStride;
+          src_stride = GST_VIDEO_FRAME_COMP_STRIDE (&frame, 1);
+
+          /* XXX: Try this if no stride was set */
+          if (dest_stride == 0)
+            dest_stride = src_stride;
+        }
+
+        dest = outbuf->omx_buf->pBuffer + outbuf->omx_buf->nOffset;
+        if (i == 1)
+          dest +=
+              port_def->format.video.nSliceHeight *
+              port_def->format.video.nStride;
+
+        src = GST_VIDEO_FRAME_COMP_DATA (&frame, i);
+        height = GST_VIDEO_FRAME_COMP_HEIGHT (&frame, i) / (i==0 ? 1 : 2);
+        width = GST_VIDEO_FRAME_COMP_WIDTH (&frame, i) * (i == 0 ? 1 : 2);
+
+        if (dest + dest_stride * height >
+            outbuf->omx_buf->pBuffer + outbuf->omx_buf->nAllocLen) {
+          gst_video_frame_unmap (&frame);
+          GST_ERROR_OBJECT (self, "Invalid output buffer size");
+          ret = FALSE;
+          break;
+        }
+        /* Convert NV16 to NV12 */
+        if (i==0)
+          for (j = 0; j < height; j++) {
+            memcpy (dest, src, width);
+            outbuf->omx_buf->nFilledLen += dest_stride;
+            src += src_stride;
+            dest += dest_stride;
+          }
+        if (i==1)
+          for (j = 0; j < height; j++) {
+            src += src_stride;
+            memcpy (dest, src, width);
+            outbuf->omx_buf->nFilledLen += dest_stride;
+            src += src_stride;
+            dest += dest_stride;
+          }
       }
       gst_video_frame_unmap (&frame);
       ret = TRUE;
