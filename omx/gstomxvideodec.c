@@ -652,8 +652,8 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
   if (pool->port->port_def.eDir == OMX_DirOutput) {
     GstBuffer *buf;
     GstOMXBuffer *omx_buf;
-#ifdef HAVE_MMNGRBUF
     GstOMXVideoDecBufferData *vdbuf_data;
+#ifdef HAVE_MMNGRBUF
     guint n_mem;
 #endif
 
@@ -666,11 +666,10 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
         gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (buf),
         gst_omx_buffer_data_quark);
 
+    vdbuf_data = (GstOMXVideoDecBufferData *) omx_buf->private_data;
 #ifdef HAVE_MMNGRBUF
     if (self->use_dmabuf)
     {
-      vdbuf_data = (GstOMXVideoDecBufferData *) omx_buf->private_data;
-
       n_mem = gst_buffer_n_memory (buf);
       if (n_mem == 0) {
         GstBuffer *new_buf;
