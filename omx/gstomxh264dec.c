@@ -284,6 +284,7 @@ gst_omx_h264_dec_copy_frame (GstOMXVideoDec * dec, GstBuffer * inbuf,
       inbuf_consumed = 0;
   GstMapInfo map = GST_MAP_INFO_INIT;
   guint8 *in_data, *out_data;
+  guint NAL_unit_type = 0;
 
   gst_buffer_map (inbuf, &map, GST_MAP_READ);
 
@@ -295,6 +296,11 @@ gst_omx_h264_dec_copy_frame (GstOMXVideoDec * dec, GstBuffer * inbuf,
   nal_size = gst_omx_h264_dec_get_nal_size (self, in_data);
   while (output_amount + nal_size + 4 <= outbuf_size) {
     guint inbuf_to_next, outbuf_to_next;
+
+    /* Check NAL_unit_type */
+    NAL_unit_type = *(in_data + self->nal_length_field_size) & 0x1F;
+    if ( (1 <= NAL_unit_type) && (NAL_unit_type <= 5) )
+        dec->ts_flag = TRUE; /* increase timestamp (later) */
 
     out_data[0] = 0x00;
     out_data[1] = 0x00;
@@ -309,6 +315,7 @@ gst_omx_h264_dec_copy_frame (GstOMXVideoDec * dec, GstBuffer * inbuf,
 
     inbuf_to_next = nal_size + self->nal_length_field_size;
     inbuf_consumed += inbuf_to_next;
+
     if ((inbuf_size - inbuf_consumed) < self->nal_length_field_size)
       /* the end of an input buffer */
       break;

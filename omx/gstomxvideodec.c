@@ -2691,6 +2691,8 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
   self = GST_OMX_VIDEO_DEC (decoder);
   klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
 
+  self->ts_flag = FALSE;  /* reset this flag for each buffer */
+
   GST_DEBUG_OBJECT (self, "Handling frame");
 
   if (self->eos) {
@@ -2861,7 +2863,9 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
       self->last_upstream_ts = timestamp;
     } else {
       /* Video stream does not provide timestamp, try calculate */
-      if (offset == 0) {
+      /* Skip calculate if the buffer does not contains any meaningful
+       * data (ts_flag = FALSE ) */
+      if (offset == 0 && self->ts_flag) {
         if (duration != GST_CLOCK_TIME_NONE )
           /* In case timestamp is invalid. may use duration to calculate
            * timestamp */

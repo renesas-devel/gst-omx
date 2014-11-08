@@ -85,6 +85,11 @@ struct _GstOMXVideoDec
   /* Set TRUE to not using frame reorder */
   gboolean no_reorder;
 
+  /* TRUE means timestamp should be increased, only effects when
+   * manually calculate timestamp (because timestamp is not provided
+   * by video stream) */
+  gboolean ts_flag;
+
   GstFlowReturn downstream_flow_ret;
 };
 
