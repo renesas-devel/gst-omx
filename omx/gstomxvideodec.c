@@ -3,6 +3,7 @@
  *   Author: Sebastian Dröge <sebastian.droege@collabora.co.uk>, Collabora Ltd.
  * Copyright (C) 2013, Collabora Ltd.
  *   Author: Sebastian Dröge <sebastian.droege@collabora.co.uk>
+ * Copyright (C) 2014, Renesas Electronics Corporation
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -403,6 +404,8 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
   GstOMXBufferPool *pool = GST_OMX_BUFFER_POOL (bpool);
   GstBuffer *buf;
   GstOMXBuffer *omx_buf;
+  GstOMXVideoDec *self;
+  self = GST_OMX_VIDEO_DEC (pool->element);
 
   g_return_val_if_fail (pool->allocating, GST_FLOW_ERROR);
 
@@ -488,10 +491,11 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
     buf = gst_buffer_new ();
 
 #ifndef HAVE_MMNGRBUF
-    for (i = 0; i < n_planes; i++)
-      gst_buffer_append_memory (buf,
-          gst_omx_memory_allocator_alloc (pool->allocator, 0, omx_buf,
-              offset[i], plane_size[i]));
+    if (self->use_dmabuf == FALSE)
+      for (i = 0; i < n_planes; i++)
+        gst_buffer_append_memory (buf,
+            gst_omx_memory_allocator_alloc (pool->allocator, 0, omx_buf,
+                offset[i], plane_size[i]));
 #endif
 
     g_ptr_array_add (pool->buffers, buf);
@@ -507,8 +511,9 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
     vdbuf_data = g_slice_new (GstOMXVideoDecBufferData);
     vdbuf_data->already_acquired = FALSE;
 #ifdef HAVE_MMNGRBUF
-    for (i = 0; i < GST_VIDEO_MAX_PLANES; i++)
-      vdbuf_data->id_export[i] = -1;
+    if (self->use_dmabuf)
+      for (i = 0; i < GST_VIDEO_MAX_PLANES; i++)
+        vdbuf_data->id_export[i] = -1;
 #endif
 
     omx_buf->private_data = (void *) vdbuf_data;
@@ -529,6 +534,8 @@ gst_omx_buffer_pool_free_buffer (GstBufferPool * bpool, GstBuffer * buffer)
 {
   GstOMXBufferPool *pool = GST_OMX_BUFFER_POOL (bpool);
   GstOMXBuffer *omx_buf;
+  GstOMXVideoDec *self;
+  self = GST_OMX_VIDEO_DEC (pool->element);
 #ifdef HAVE_MMNGRBUF
   GstOMXVideoDecBufferData *vdbuf_data;
   gint i;
@@ -545,14 +552,14 @@ gst_omx_buffer_pool_free_buffer (GstBufferPool * bpool, GstBuffer * buffer)
   omx_buf =
       gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (buffer),
       gst_omx_buffer_data_quark);
-
 #ifdef HAVE_MMNGRBUF
-  vdbuf_data = (GstOMXVideoDecBufferData *) omx_buf->private_data;
-  for (i = 0; i < GST_VIDEO_MAX_PLANES; i++)
-    if (vdbuf_data->id_export[i] >= 0)
-      mmngr_export_end_in_user (vdbuf_data->id_export[i]);
+  if (self->use_dmabuf) {
+    vdbuf_data = (GstOMXVideoDecBufferData *) omx_buf->private_data;
+    for (i = 0; i < GST_VIDEO_MAX_PLANES; i++)
+      if (vdbuf_data->id_export[i] >= 0)
+        mmngr_export_end_in_user (vdbuf_data->id_export[i]);
+  }
 #endif
-
   g_slice_free (gboolean, omx_buf->private_data);
 
   gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buffer),
@@ -631,6 +638,8 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
 {
   GstFlowReturn ret;
   GstOMXBufferPool *pool = GST_OMX_BUFFER_POOL (bpool);
+  GstOMXVideoDec *self;
+  self = GST_OMX_VIDEO_DEC (pool->element);
 
   if (pool->port->port_def.eDir == OMX_DirOutput) {
     GstBuffer *buf;
@@ -650,79 +659,83 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
         gst_omx_buffer_data_quark);
 
 #ifdef HAVE_MMNGRBUF
-    vdbuf_data = (GstOMXVideoDecBufferData *) omx_buf->private_data;
+    if (self->use_dmabuf)
+    {
+      vdbuf_data = (GstOMXVideoDecBufferData *) omx_buf->private_data;
 
-    n_mem = gst_buffer_n_memory (buf);
-    if (n_mem == 0) {
-      GstBuffer *new_buf;
-      GstVideoMeta *vmeta;
-      gint n_planes;
-      gint i;
-      gint dmabuf_fd[GST_VIDEO_MAX_PLANES];
-      gint plane_size[GST_VIDEO_MAX_PLANES];
+      n_mem = gst_buffer_n_memory (buf);
+      if (n_mem == 0) {
+        GstBuffer *new_buf;
+        GstVideoMeta *vmeta;
+        gint n_planes;
+        gint i;
+        gint dmabuf_fd[GST_VIDEO_MAX_PLANES];
+        gint plane_size[GST_VIDEO_MAX_PLANES];
 
-      GST_DEBUG_OBJECT (pool, "Create dmabuf mem pBuffer=%p",
-          omx_buf->omx_buf->pBuffer);
+        GST_DEBUG_OBJECT (pool, "Create dmabuf mem pBuffer=%p",
+            omx_buf->omx_buf->pBuffer);
 
-      vmeta = gst_buffer_get_video_meta (buf);
+        vmeta = gst_buffer_get_video_meta (buf);
 
-      n_planes = GST_VIDEO_INFO_N_PLANES (&pool->video_info);
-      for (i = 0; i < n_planes; i++) {
-        gint res;
-        guint phys_addr;
-        OMXR_MC_VIDEO_DECODERESULTTYPE *decode_res =
-            (OMXR_MC_VIDEO_DECODERESULTTYPE *) omx_buf->
-            omx_buf->pOutputPortPrivate;
+        n_planes = GST_VIDEO_INFO_N_PLANES (&pool->video_info);
+        for (i = 0; i < n_planes; i++) {
+          gint res;
+          guint phys_addr;
+          OMXR_MC_VIDEO_DECODERESULTTYPE *decode_res =
+              (OMXR_MC_VIDEO_DECODERESULTTYPE *) omx_buf->
+              omx_buf->pOutputPortPrivate;
 
-        phys_addr = (guint) decode_res->pvPhysImageAddressY + vmeta->offset[i];
-        plane_size[i] = vmeta->stride[i] * vmeta->height;
+          phys_addr = (guint) decode_res->pvPhysImageAddressY + vmeta->offset[i];
+          plane_size[i] = vmeta->stride[i] * vmeta->height;
 
-        res =
-            mmngr_export_start_in_user (&vdbuf_data->id_export[i],
-            plane_size[i], (unsigned long) phys_addr, &dmabuf_fd[i]);
-        if (res != R_MM_OK) {
-          GST_ERROR_OBJECT (pool,
-              "mmngr_export_start_in_user failed (phys_addr:0x%08x)",
-              phys_addr);
-          return GST_FLOW_ERROR;
+          res =
+              mmngr_export_start_in_user (&vdbuf_data->id_export[i],
+              plane_size[i], (unsigned long) phys_addr, &dmabuf_fd[i]);
+          if (res != R_MM_OK) {
+            GST_ERROR_OBJECT (pool,
+                "mmngr_export_start_in_user failed (phys_addr:0x%08x)",
+                phys_addr);
+            return GST_FLOW_ERROR;
+          }
+
+          GST_DEBUG_OBJECT (pool,
+            "Export dmabuf:%d id_export:%d (phys_addr:0x%08x)", dmabuf_fd[i],
+              vdbuf_data->id_export[i], phys_addr);
         }
 
-        GST_DEBUG_OBJECT (pool,
-            "Export dmabuf:%d id_export:%d (phys_addr:0x%08x)", dmabuf_fd[i],
-            vdbuf_data->id_export[i], phys_addr);
-      }
-
-      if (pool->vsink_buf_req_supported)
-        new_buf = gst_omx_buffer_pool_request_videosink_buffer_creation (pool,
-            dmabuf_fd, vmeta->stride);
-      else {
-        new_buf = gst_buffer_new ();
-        for (i = 0; i < n_planes; i++)
-          gst_buffer_append_memory (new_buf,
+        if (pool->vsink_buf_req_supported)
+          new_buf = gst_omx_buffer_pool_request_videosink_buffer_creation (pool,
+              dmabuf_fd, vmeta->stride);
+        else {
+          new_buf = gst_buffer_new ();
+          for (i = 0; i < n_planes; i++)
+            gst_buffer_append_memory (new_buf,
               gst_dmabuf_allocator_alloc (pool->allocator, dmabuf_fd[i],
                   plane_size[i]));
 
-        gst_buffer_add_video_meta_full (new_buf, GST_VIDEO_FRAME_FLAG_NONE,
-            GST_VIDEO_INFO_FORMAT (&pool->video_info),
-            GST_VIDEO_INFO_WIDTH (&pool->video_info),
-            GST_VIDEO_INFO_HEIGHT (&pool->video_info),
-            GST_VIDEO_INFO_N_PLANES (&pool->video_info), vmeta->offset,
-            vmeta->stride);
-      }
+          gst_buffer_add_video_meta_full (new_buf, GST_VIDEO_FRAME_FLAG_NONE,
+              GST_VIDEO_INFO_FORMAT (&pool->video_info),
+              GST_VIDEO_INFO_WIDTH (&pool->video_info),
+              GST_VIDEO_INFO_HEIGHT (&pool->video_info),
+              GST_VIDEO_INFO_N_PLANES (&pool->video_info), vmeta->offset,
+              vmeta->stride);
+        }
 
-      g_ptr_array_remove_index (pool->buffers, pool->current_buffer_index);
+        g_ptr_array_remove_index (pool->buffers, pool->current_buffer_index);
 
-      gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buf),
-          gst_omx_buffer_data_quark, NULL, NULL);
+        gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buf),
+            gst_omx_buffer_data_quark, NULL, NULL);
 
-      gst_buffer_unref (buf);
+        gst_buffer_unref (buf);
 
-      gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (new_buf),
-          gst_omx_buffer_data_quark, omx_buf, NULL);
+        gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (new_buf),
+            gst_omx_buffer_data_quark, omx_buf, NULL);
 
-      g_ptr_array_add (pool->buffers, new_buf);
+        g_ptr_array_add (pool->buffers, new_buf);
 
-      *buffer = new_buf;
+        *buffer = new_buf;
+      } else
+        *buffer = buf;
     } else
 #endif
       *buffer = buf;
@@ -903,10 +916,16 @@ static OMX_ERRORTYPE gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec *
     self);
 static OMX_ERRORTYPE gst_omx_video_dec_deallocate_output_buffers (GstOMXVideoDec
     * self);
+static void gst_omx_video_dec_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec);
+static void gst_omx_video_dec_get_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec);
 
 enum
 {
-  PROP_0
+  PROP_0,
+  PROP_NO_COPY,
+  PROP_USE_DMABUF
 };
 
 /* class initialization */
@@ -947,6 +966,8 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
   GstVideoDecoderClass *video_decoder_class = GST_VIDEO_DECODER_CLASS (klass);
 
   gobject_class->finalize = gst_omx_video_dec_finalize;
+  gobject_class->set_property = gst_omx_video_dec_set_property;
+  gobject_class->get_property = gst_omx_video_dec_get_property;
 
   element_class->change_state =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_change_state);
@@ -967,6 +988,16 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
   klass->cdata.default_src_template_caps = "video/x-raw, "
       "width = " GST_VIDEO_SIZE_RANGE ", "
       "height = " GST_VIDEO_SIZE_RANGE ", " "framerate = " GST_VIDEO_FPS_RANGE;
+  g_object_class_install_property (gobject_class, PROP_NO_COPY,
+      g_param_spec_boolean ("no-copy", "No copy",
+        "Whether or not to transfer decoded data without copy",
+        FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+        GST_PARAM_MUTABLE_READY));
+  g_object_class_install_property (gobject_class, PROP_USE_DMABUF,
+      g_param_spec_boolean ("use-dmabuf", "Use dmabuffer ",
+        "Whether or not to transfer decoded data using dmabuf",
+        TRUE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+        GST_PARAM_MUTABLE_READY));
 
   klass->copy_frame = gst_omx_video_dec_copy_frame;
 }
@@ -978,6 +1009,10 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
 
   g_mutex_init (&self->drain_lock);
   g_cond_init (&self->drain_cond);
+  self->no_copy = FALSE;
+#ifdef HAVE_MMNGRBUF
+  self->use_dmabuf = TRUE;
+#endif
 }
 
 static gboolean
@@ -1587,6 +1622,11 @@ gst_omx_video_dec_deallocate_output_buffers (GstOMXVideoDec * self)
   if (self->out_port_pool) {
     gst_buffer_pool_set_active (self->out_port_pool, FALSE);
     GST_OMX_BUFFER_POOL (self->out_port_pool)->deactivated = TRUE;
+    if (self->use_dmabuf == FALSE)
+    {
+      gst_object_unref (self->out_port_pool);
+      self->out_port_pool = NULL;
+    }
   }
   err = gst_omx_port_deallocate_buffers (self->dec_out_port);
 
@@ -1597,66 +1637,90 @@ static GstBuffer *
 gst_omx_video_dec_create_buffer_from_omx_output (GstOMXVideoDec * self,
     GstOMXBuffer * buf)
 {
-  GstVideoCodecState *state =
-      gst_video_decoder_get_output_state (GST_VIDEO_DECODER (self));
-  GstVideoInfo *vinfo = &state->info;
-  GstBuffer *outBuf;
-  guint8 *data;
-  gsize max_size;
-  gsize plane_size[GST_VIDEO_MAX_PLANES] = { 0 };
-  gsize offset[GST_VIDEO_MAX_PLANES] = { 0 };
-  gint stride[GST_VIDEO_MAX_PLANES] = { 0 };
-  GstVideoFormat format;
-  guint n_planes;
-  OMX_PARAM_PORTDEFINITIONTYPE *port_def = &self->dec_out_port->port_def;
+  /* Create a Gst buffer to wrap decoded data, then send to
+   * downstream plugin.
+   */
+  GstBuffer *newbuf;
+  GstVideoCodecState *state;
+  GstVideoInfo *vinfo;
   gint i;
+  gint offs, plane_size, used_size;
+  gint width, base_stride, sliceheigh, height;
+  OMX_PARAM_PORTDEFINITIONTYPE *port_def;
+  GstMemory *mem;
+  gsize offset[GST_VIDEO_MAX_PLANES];
+  gint stride[GST_VIDEO_MAX_PLANES];
 
-  format = vinfo->finfo->format;
 
-  switch (format) {
-    case GST_VIDEO_FORMAT_I420:
-      stride[0] = port_def->format.video.nStride;
-      stride[1] = stride[2] = port_def->format.video.nStride / 2;
-      offset[1] = port_def->format.video.nSliceHeight *
-          port_def->format.video.nStride;
-      offset[2] = offset[1] +
-          stride[1] * port_def->format.video.nSliceHeight / 2;
-      plane_size[0] = port_def->format.video.nStride *
-          port_def->format.video.nFrameHeight;
-      plane_size[1] = plane_size[2] = plane_size[0] / 4;
+  state =
+    gst_video_decoder_get_output_state (GST_VIDEO_DECODER (self));
+  vinfo = &state->info;
 
-      n_planes = 3;
-      break;
-    case GST_VIDEO_FORMAT_NV12:
-      stride[0] = stride[1] = port_def->format.video.nStride;
-      offset[1] = port_def->format.video.nSliceHeight *
-          port_def->format.video.nStride;
-      plane_size[0] = port_def->format.video.nStride *
-          port_def->format.video.nFrameHeight;
-      plane_size[1] = plane_size[0] / 2;
+  port_def    = &self->dec_out_port->port_def;
+  width       = port_def->format.video.nFrameWidth;
+  base_stride = port_def->format.video.nStride;
+  sliceheigh  = port_def->format.video.nSliceHeight;
+  height       = port_def->format.video.nFrameHeight;
 
-      n_planes = 2;
-      break;
-    default:
-      GST_ERROR_OBJECT (self, "Unsupported color format: %d", format);
-      return NULL;
+
+  newbuf = gst_buffer_new ();
+
+  /* Calculate memory area to add to Gst buffer */
+  offs = 0;
+  for (i=0; i < GST_VIDEO_INFO_N_PLANES(vinfo); i++) {
+    offset[i] = offs;
+
+    switch (GST_VIDEO_INFO_FORMAT(vinfo)) {
+      case GST_VIDEO_FORMAT_NV12:
+      case GST_VIDEO_FORMAT_NV21:
+      case GST_VIDEO_FORMAT_NV16:
+      case GST_VIDEO_FORMAT_NV24:
+        /* The scale_width value is wrong for plane 2 of these
+         * Semiplana formats. Need to multiply with 2 */
+        stride[i] = (i == 0 ? 1 : 2) *
+            GST_VIDEO_FORMAT_INFO_SCALE_WIDTH (vinfo->finfo, i,
+            base_stride);
+        break;
+      default:
+        stride[i] =
+            GST_VIDEO_FORMAT_INFO_SCALE_WIDTH (vinfo->finfo, i,
+            base_stride);
+        break;
+    }
+
+    plane_size = stride[i] *
+        GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT (vinfo->finfo, i, sliceheigh);
+    used_size = stride[i] *
+        GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT (vinfo->finfo, i, height);
+
+    /* Only release OMX buffer one time. Do not add callback
+     * function to other planes
+     * (These planes are from same OMX buffer) */
+    mem = gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE,
+        buf->omx_buf->pBuffer + buf->omx_buf->nOffset + offs,
+        plane_size, 0, used_size, NULL, NULL);
+
+    gst_buffer_append_memory (newbuf, mem);
+
+    offs += plane_size;
   }
 
-  outBuf = gst_buffer_new ();
+  /* Add video meta data, which is needed to map frame */
+  gst_buffer_add_video_meta_full (newbuf, GST_VIDEO_FRAME_FLAG_NONE,
+      GST_VIDEO_INFO_FORMAT (vinfo), width, height,
+      GST_VIDEO_INFO_N_PLANES(vinfo),
+      offset, stride);
 
-  data = buf->omx_buf->pBuffer + buf->omx_buf->nOffset;
-  max_size = buf->omx_buf->nFilledLen;
+  /* Set timestamp */
+  GST_BUFFER_PTS (newbuf) =
+      gst_util_uint64_scale (buf->omx_buf->nTimeStamp, GST_SECOND,
+      OMX_TICKS_PER_SECOND);
+  if (buf->omx_buf->nTickCount != 0)
+    GST_BUFFER_DURATION (newbuf) =
+        gst_util_uint64_scale (buf->omx_buf->nTickCount, GST_SECOND,
+        OMX_TICKS_PER_SECOND);
 
-  for (i = 0; i < n_planes; i++)
-    gst_buffer_append_memory (outBuf,
-        gst_memory_new_wrapped (0, data, max_size, offset[i], plane_size[i],
-            NULL, NULL));
-
-  gst_buffer_add_video_meta_full (outBuf, GST_VIDEO_FRAME_FLAG_NONE,
-      format, port_def->format.video.nFrameWidth,
-      port_def->format.video.nFrameHeight, n_planes, offset, stride);
-
-  return outBuf;
+  return newbuf;
 }
 
 static void
@@ -1864,12 +1928,15 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
     frame = NULL;
 
-    /*
-     * sets the already_acquired flag a GstOMXBuffer buffer has
-     * in the case of the frame dropping, similar to the buffer acquisition.
-     */
-    vdbuf_data = (GstOMXVideoDecBufferData *) buf->private_data;
-    vdbuf_data->already_acquired = TRUE;
+    if (self->out_port_pool)
+    {
+      /*
+       * sets the already_acquired flag a GstOMXBuffer buffer has
+       * in the case of the frame dropping, similar to the buffer acquisition.
+       */
+      vdbuf_data = (GstOMXVideoDecBufferData *) buf->private_data;
+      vdbuf_data->already_acquired = TRUE;
+    }
   } else if (!frame && buf->omx_buf->nFilledLen > 0) {
     GstBuffer *outbuf;
 
@@ -1967,20 +2034,32 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
          * port if both need reconfiguration.
          */
 
-        /*
-         * Replace output buffer from the bufferpool of the downstream plugin
-         * with the one created with
-         * gst_omx_video_dec_create_buffer_from_omx_output(), which sets each
-         * plane address of an OMX output buffer to a new GstBuffer in order to
-         * pass output image data to the downstream plugin without memcpy.
-         */
-        gst_buffer_unref (frame->output_buffer);
-        frame->output_buffer =
+        if (self->no_copy)
+        {
+          /*
+           * Replace output buffer from the bufferpool of the downstream plugin
+           * with the one created with
+           * gst_omx_video_dec_create_buffer_from_omx_output(), which sets each
+           * plane address of an OMX output buffer to a new GstBuffer in order to
+           * pass output image data to the downstream plugin without memcpy.
+           */
+          gst_buffer_unref (frame->output_buffer);
+          frame->output_buffer =
             gst_omx_video_dec_create_buffer_from_omx_output (self, buf);
-        if (!frame->output_buffer) {
-          GST_ERROR_OBJECT (self, "failed to create an output buffer");
-          flow_ret = GST_FLOW_ERROR;
-          goto flow_error;
+          if (!frame->output_buffer) {
+            GST_ERROR_OBJECT (self, "failed to create an output buffer");
+            flow_ret = GST_FLOW_ERROR;
+            goto flow_error;
+          }
+        } else {
+          if (!gst_omx_video_dec_fill_buffer (self, buf, frame->output_buffer)) {
+            gst_buffer_replace (&frame->output_buffer, NULL);
+            flow_ret =
+              gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
+            frame = NULL;
+            gst_omx_port_release_buffer (port, buf);
+            goto invalid_buffer;
+          }
         }
 
         flow_ret =
@@ -2494,7 +2573,8 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     if (gst_omx_port_allocate_buffers (self->dec_in_port) != OMX_ErrorNone)
       return FALSE;
 
-    self->out_port_pool =
+    if (self->use_dmabuf)
+      self->out_port_pool =
         gst_omx_buffer_pool_new (GST_ELEMENT_CAST (self), self->dec,
         self->dec_out_port);
 
@@ -3031,4 +3111,43 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
   }
 
   return TRUE;
+}
+static void
+gst_omx_video_dec_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GstOMXVideoDec *self = GST_OMX_VIDEO_DEC (object);
+
+  switch (prop_id) {
+    case PROP_NO_COPY:
+    {
+      self->no_copy = g_value_get_boolean (value);
+      self->use_dmabuf = FALSE;
+      break;
+    }
+    case PROP_USE_DMABUF:
+      self->use_dmabuf = g_value_get_boolean (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+static void
+gst_omx_video_dec_get_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec)
+{
+  GstOMXVideoDec *self = GST_OMX_VIDEO_DEC (object);
+
+  switch (prop_id) {
+    case PROP_NO_COPY:
+      g_value_set_boolean (value, self->no_copy);
+      break;
+    case PROP_USE_DMABUF:
+      g_value_set_boolean (value, self->use_dmabuf);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
 }
