@@ -915,6 +915,7 @@ static GstFlowReturn gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
 static GstFlowReturn gst_omx_video_dec_finish (GstVideoDecoder * decoder);
 static gboolean gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec,
     GstQuery * query);
+static gboolean gst_omx_video_dec_negotiate2 (GstVideoDecoder * decoder);
 
 static GstFlowReturn gst_omx_video_dec_drain (GstOMXVideoDec * self,
     gboolean is_eos);
@@ -993,6 +994,8 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
   video_decoder_class->finish = GST_DEBUG_FUNCPTR (gst_omx_video_dec_finish);
   video_decoder_class->decide_allocation =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_decide_allocation);
+  video_decoder_class->negotiate =
+      GST_DEBUG_FUNCPTR (gst_omx_video_dec_negotiate2);
 
   klass->cdata.default_src_template_caps = "video/x-raw, "
       "width = " GST_VIDEO_SIZE_RANGE ", "
@@ -3223,4 +3226,36 @@ gst_omx_video_dec_get_property (GObject * object, guint prop_id,
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
   }
+}
+
+static gboolean
+gst_omx_video_dec_negotiate2 (GstVideoDecoder * decoder)
+{
+  GstOMXVideoDec *self;
+  GstVideoCodecState *state;
+  GstCaps *prevcaps;
+
+  self = GST_OMX_VIDEO_DEC (decoder);
+
+  state = gst_video_decoder_get_output_state (decoder);
+  if (state == NULL) {
+    GST_ERROR_OBJECT (self, "Failed to get output state");
+    return FALSE;
+  }
+
+  if (state->caps == NULL)
+    state->caps = gst_video_info_to_caps (&state->info);
+
+  prevcaps = gst_pad_get_current_caps (decoder->srcpad);
+  if (prevcaps && gst_caps_is_equal (prevcaps, state->caps)) {
+    GST_DEBUG_OBJECT (self,
+        "Skip the video decoder negotiation because the caps is not changed");
+    gst_video_codec_state_unref (state);
+    return TRUE;
+  }
+
+  gst_video_codec_state_unref (state);
+
+  return GST_VIDEO_DECODER_CLASS
+      (gst_omx_video_dec_parent_class)->negotiate (decoder);
 }
