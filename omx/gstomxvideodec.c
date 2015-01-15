@@ -568,7 +568,7 @@ gst_omx_buffer_pool_free_buffer (GstBufferPool * bpool, GstBuffer * buffer)
         mmngr_export_end_in_user (vdbuf_data->id_export[i]);
   }
 #endif
-  g_slice_free (gboolean, omx_buf->private_data);
+  g_slice_free (GstOMXVideoDecBufferData, omx_buf->private_data);
 
   gst_mini_object_set_qdata (GST_MINI_OBJECT_CAST (buffer),
       gst_omx_buffer_data_quark, NULL, NULL);
