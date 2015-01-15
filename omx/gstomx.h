@@ -118,6 +118,19 @@ G_BEGIN_DECLS
  */
 #define GST_OMX_HACK_RENESAS_ENCMC_STRIDE_ALIGN                   G_GUINT64_CONSTANT (0x0000000000000200)
 
+/* Renesas encode MC has a restriction with nBufferSize parameter on
+ * its input port.
+ * On its input port, nBufferSize can be set, but error will happen if
+ * user sets a value > 3133440
+ * (This case can happen when encoding YUV420Planar FullHD, due to above
+ * stride limitation)
+ *
+ * To workaround this restriction, set nBufferSize to 3133440 each time
+ * call OMX_SetParameter with OMX_PARAM_PORTDEFINITIONTYPE.nPortIndex=0.
+ * OMX MC will update this value itself according to its own calculation
+ */
+#define GST_OMX_HACK_RENESAS_ENCMC_MAX_NBUFFERSIZE                    G_GUINT64_CONSTANT (0x0000000000000400)
+
 
 typedef struct _GstOMXCore GstOMXCore;
 typedef struct _GstOMXPort GstOMXPort;

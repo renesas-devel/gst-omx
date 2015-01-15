@@ -1194,10 +1194,18 @@ gst_omx_port_update_port_definition (GstOMXPort * port,
 
   comp = port->comp;
 
-  if (port_def)
+  if (port_def) {
+    if (comp->hacks & GST_OMX_HACK_RENESAS_ENCMC_MAX_NBUFFERSIZE) {
+      if (port->port_def.eDir == OMX_DirInput &&
+          port_def->nBufferSize > 3133440)
+        port_def->nBufferSize = 3133440;
+    }
+
     err =
         gst_omx_component_set_parameter (comp, OMX_IndexParamPortDefinition,
         port_def);
+  }
+
   gst_omx_component_get_parameter (comp, OMX_IndexParamPortDefinition,
       &port->port_def);
 
@@ -2545,6 +2553,8 @@ gst_omx_parse_hacks (gchar ** hacks)
       hacks_flags |= GST_OMX_HACK_DEFAULT_PIXEL_ASPECT_RATIO;
     else if (g_str_equal (*hacks, "renesas-encmc-stride-align"))
       hacks_flags |= GST_OMX_HACK_RENESAS_ENCMC_STRIDE_ALIGN;
+    else if (g_str_equal (*hacks, "renesas-encmc-max-nbuffersize"))
+      hacks_flags |= GST_OMX_HACK_RENESAS_ENCMC_MAX_NBUFFERSIZE;
     else
       GST_WARNING ("Unknown hack: %s", *hacks);
     hacks++;
