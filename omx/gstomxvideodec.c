@@ -3118,8 +3118,8 @@ gst_omx_video_dec_drain (GstOMXVideoDec * self, gboolean is_eos)
 static gboolean
 gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
 {
-  GstBufferPool *pool;
-  GstStructure *config;
+  GstBufferPool *pool, *vpool;
+  GstStructure *config, *vconfig;
   GstOMXVideoDec *self;
   GstCaps *caps;
   gboolean update_pool = FALSE;
@@ -3159,18 +3159,33 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
     }
 
     GST_OMX_BUFFER_POOL (self->out_port_pool)->allocating = TRUE;
+    gst_buffer_pool_set_active (self->out_port_pool, TRUE);
+
+    /* This video buffer pool created below will not be used, just setting to
+     * the gstvideodecoder class through a query, because it is
+     * mandatoty to set a buffer pool into the gstvideodecoder class
+     * regardless of whether the buffer pool is actually used or not.
+     * gst-omx controls its own buffer pool by itself, so the buffer pool
+     * gst-omx will use does not have to be set to the gstvideodecoder
+     * class.
+     * When the gstbufferpool is activated, it allocates buffers from
+     * a gstallocator for the number of min_buffers in advance, which is
+     * the parameter of a buffer pool. No buffers will be allocated with
+     * the video buffer pool created below even when being activated,
+     * because the min_buffers is set as 0.
+     */
+    vpool = gst_video_buffer_pool_new ();
+    vconfig = gst_buffer_pool_get_config (vpool);
+    gst_buffer_pool_config_set_params (vconfig, caps, 0, 0, 1);
+    gst_buffer_pool_set_config (vpool, vconfig);
 
     if (update_pool)
-      gst_query_set_nth_allocation_pool (query, 0, self->out_port_pool,
-          self->dec_out_port->port_def.nBufferSize,
-          self->dec_out_port->port_def.nBufferCountActual,
-          self->dec_out_port->port_def.nBufferCountActual);
+      gst_query_set_nth_allocation_pool (query, 0, vpool,
+          self->dec_out_port->port_def.nBufferSize, 0, 1);
     else
-      gst_query_add_allocation_pool (query, self->out_port_pool,
-          self->dec_out_port->port_def.nBufferSize,
-          self->dec_out_port->port_def.nBufferCountActual,
-          self->dec_out_port->port_def.nBufferCountActual);
-    gst_object_unref (self->out_port_pool);
+      gst_query_add_allocation_pool (query, vpool,
+          self->dec_out_port->port_def.nBufferSize, 0, 1);
+    gst_object_unref (vpool);
   } else {
     if (!GST_VIDEO_DECODER_CLASS
         (gst_omx_video_dec_parent_class)->decide_allocation (bdec, query))
