@@ -209,6 +209,7 @@ gst_omx_h264_dec_set_format (GstOMXVideoDec * dec, GstOMXPort * port,
   gst_buffer_unmap (state->codec_data, &map);
 
   gst_buffer_replace (&state->codec_data, new_codec_data);
+  gst_buffer_unref (new_codec_data);
 
   {
     /*
