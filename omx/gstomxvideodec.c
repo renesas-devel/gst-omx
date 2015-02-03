@@ -693,7 +693,8 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
               omx_buf->pOutputPortPrivate;
 
           phys_addr = (guint) decode_res->pvPhysImageAddressY + vmeta->offset[i];
-          plane_size[i] = vmeta->stride[i] * vmeta->height;
+          plane_size[i] = vmeta->stride[i] *
+              GST_VIDEO_INFO_COMP_HEIGHT (&pool->video_info, i);
 
           res =
               mmngr_export_start_in_user (&vdbuf_data->id_export[i],
