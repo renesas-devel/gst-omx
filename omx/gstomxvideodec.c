@@ -29,6 +29,7 @@
 #include <gst/video/gstvideometa.h>
 #include <gst/video/gstvideopool.h>
 #include <string.h>
+#include <unistd.h>             /* getpagesize() */
 
 #include "gstomxvideodec.h"
 
@@ -691,14 +692,17 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
           OMXR_MC_VIDEO_DECODERESULTTYPE *decode_res =
               (OMXR_MC_VIDEO_DECODERESULTTYPE *) omx_buf->
               omx_buf->pOutputPortPrivate;
+          gint page_size;
 
           phys_addr = (guint) decode_res->pvPhysImageAddressY + vmeta->offset[i];
           plane_size[i] = vmeta->stride[i] *
               GST_VIDEO_INFO_COMP_HEIGHT (&pool->video_info, i);
+          page_size = getpagesize ();
 
           res =
               mmngr_export_start_in_user (&vdbuf_data->id_export[i],
-              plane_size[i], (unsigned long) phys_addr, &dmabuf_fd[i]);
+              (plane_size[i] + page_size - 1) & ~(page_size - 1),
+              (unsigned long) phys_addr, &dmabuf_fd[i]);
           if (res != R_MM_OK) {
             GST_ERROR_OBJECT (pool,
                 "mmngr_export_start_in_user failed (phys_addr:0x%08x)",
