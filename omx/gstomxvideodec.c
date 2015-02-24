@@ -679,25 +679,46 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
         gint i;
         gint dmabuf_fd[GST_VIDEO_MAX_PLANES];
         gint plane_size[GST_VIDEO_MAX_PLANES];
+        gint res;
+        guint phys_addr;
+        OMXR_MC_VIDEO_DECODERESULTTYPE *decode_res =
+               (OMXR_MC_VIDEO_DECODERESULTTYPE *) omx_buf->
+               omx_buf->pOutputPortPrivate;
+        gint page_size;
 
         GST_DEBUG_OBJECT (pool, "Create dmabuf mem pBuffer=%p",
             omx_buf->omx_buf->pBuffer);
 
         vmeta = gst_buffer_get_video_meta (buf);
 
-        n_planes = GST_VIDEO_INFO_N_PLANES (&pool->video_info);
-        for (i = 0; i < n_planes; i++) {
-          gint res;
-          guint phys_addr;
-          OMXR_MC_VIDEO_DECODERESULTTYPE *decode_res =
-              (OMXR_MC_VIDEO_DECODERESULTTYPE *) omx_buf->
-              omx_buf->pOutputPortPrivate;
-          gint page_size;
+        phys_addr = (guint) decode_res->pvPhysImageAddressY;
+        page_size = getpagesize ();
 
+        /* Export a dmabuf file descriptor from the head of Y plane to
+         * the end of the buffer so that mapping the whole plane as
+         * contiguous memory is available. */
+        res =
+            mmngr_export_start_in_user (&vdbuf_data->id_export[0],
+            (pool->port->port_def.nBufferSize + page_size - 1) & ~(page_size - 1),
+            (unsigned long) phys_addr, &dmabuf_fd[0]);
+        if (res != R_MM_OK) {
+          GST_ERROR_OBJECT (pool,
+              "mmngr_export_start_in_user failed (phys_addr:0x%08x)", phys_addr);
+          return GST_FLOW_ERROR;
+        }
+        GST_DEBUG_OBJECT (pool,
+            "Export dmabuf:%d id_export:%d (phys_addr:0x%08x)", dmabuf_fd[0],
+            vdbuf_data->id_export[0], phys_addr);
+
+        plane_size[0] = vmeta->stride[0] *
+            GST_VIDEO_INFO_COMP_HEIGHT (&pool->video_info, 0);
+
+        /* Export dmabuf file descriptors from second and subsequent planes */
+        n_planes = GST_VIDEO_INFO_N_PLANES (&pool->video_info);
+        for (i = 1; i < n_planes; i++) {
           phys_addr = (guint) decode_res->pvPhysImageAddressY + vmeta->offset[i];
           plane_size[i] = vmeta->stride[i] *
               GST_VIDEO_INFO_COMP_HEIGHT (&pool->video_info, i);
-          page_size = getpagesize ();
 
           res =
               mmngr_export_start_in_user (&vdbuf_data->id_export[i],
