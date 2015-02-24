@@ -641,6 +641,31 @@ gst_omx_buffer_pool_request_videosink_buffer_creation (GstOMXBufferPool * pool,
 }
 #endif
 
+#ifdef HAVE_MMNGRBUF
+static gboolean
+gst_omx_buffer_pool_export_dmabuf (GstOMXBufferPool * pool,
+    guint phys_addr, gint size, gint boundary, gint * id_export,
+    gint * dmabuf_fd)
+{
+  gint res;
+
+  res =
+      mmngr_export_start_in_user (id_export,
+      (size + boundary - 1) & ~(boundary - 1), (unsigned long) phys_addr,
+      dmabuf_fd);
+  if (res != R_MM_OK) {
+    GST_ERROR_OBJECT (pool,
+        "mmngr_export_start_in_user failed (phys_addr:0x%08x)", phys_addr);
+    return FALSE;
+  }
+  GST_DEBUG_OBJECT (pool,
+      "Export dmabuf:%d id_export:%d (phys_addr:0x%08x)", *dmabuf_fd,
+      *id_export, phys_addr);
+
+  return TRUE;
+}
+#endif
+
 static GstFlowReturn
 gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
     GstBuffer ** buffer, GstBufferPoolAcquireParams * params)
@@ -679,7 +704,6 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
         gint i;
         gint dmabuf_fd[GST_VIDEO_MAX_PLANES];
         gint plane_size[GST_VIDEO_MAX_PLANES];
-        gint res;
         guint phys_addr;
         OMXR_MC_VIDEO_DECODERESULTTYPE *decode_res =
                (OMXR_MC_VIDEO_DECODERESULTTYPE *) omx_buf->
@@ -697,18 +721,12 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
         /* Export a dmabuf file descriptor from the head of Y plane to
          * the end of the buffer so that mapping the whole plane as
          * contiguous memory is available. */
-        res =
-            mmngr_export_start_in_user (&vdbuf_data->id_export[0],
-            (pool->port->port_def.nBufferSize + page_size - 1) & ~(page_size - 1),
-            (unsigned long) phys_addr, &dmabuf_fd[0]);
-        if (res != R_MM_OK) {
-          GST_ERROR_OBJECT (pool,
-              "mmngr_export_start_in_user failed (phys_addr:0x%08x)", phys_addr);
+        if (!gst_omx_buffer_pool_export_dmabuf (pool, phys_addr,
+                pool->port->port_def.nBufferSize, page_size,
+                &vdbuf_data->id_export[0], &dmabuf_fd[0])) {
+          GST_ERROR_OBJECT (pool, "dmabuf exporting failed");
           return GST_FLOW_ERROR;
         }
-        GST_DEBUG_OBJECT (pool,
-            "Export dmabuf:%d id_export:%d (phys_addr:0x%08x)", dmabuf_fd[0],
-            vdbuf_data->id_export[0], phys_addr);
 
         plane_size[0] = vmeta->stride[0] *
             GST_VIDEO_INFO_COMP_HEIGHT (&pool->video_info, 0);
@@ -720,20 +738,11 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
           plane_size[i] = vmeta->stride[i] *
               GST_VIDEO_INFO_COMP_HEIGHT (&pool->video_info, i);
 
-          res =
-              mmngr_export_start_in_user (&vdbuf_data->id_export[i],
-              (plane_size[i] + page_size - 1) & ~(page_size - 1),
-              (unsigned long) phys_addr, &dmabuf_fd[i]);
-          if (res != R_MM_OK) {
-            GST_ERROR_OBJECT (pool,
-                "mmngr_export_start_in_user failed (phys_addr:0x%08x)",
-                phys_addr);
+          if (!gst_omx_buffer_pool_export_dmabuf (pool, phys_addr, plane_size[i],
+                  page_size, &vdbuf_data->id_export[i], &dmabuf_fd[i])) {
+            GST_ERROR_OBJECT (pool, "dmabuf exporting failed");
             return GST_FLOW_ERROR;
           }
-
-          GST_DEBUG_OBJECT (pool,
-            "Export dmabuf:%d id_export:%d (phys_addr:0x%08x)", dmabuf_fd[i],
-              vdbuf_data->id_export[i], phys_addr);
         }
 
         if (pool->vsink_buf_req_supported)
