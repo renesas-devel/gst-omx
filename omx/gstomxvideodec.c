@@ -1968,23 +1968,11 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
   if (frame
       && (deadline = gst_video_decoder_get_max_decode_time
           (GST_VIDEO_DECODER (self), frame)) < 0) {
-    GstOMXVideoDecBufferData *vdbuf_data;
-
     GST_WARNING_OBJECT (self,
         "Frame is too late, dropping (deadline %" GST_TIME_FORMAT ")",
         GST_TIME_ARGS (-deadline));
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
     frame = NULL;
-
-    if (self->out_port_pool)
-    {
-      /*
-       * sets the already_acquired flag a GstOMXBuffer buffer has
-       * in the case of the frame dropping, similar to the buffer acquisition.
-       */
-      vdbuf_data = (GstOMXVideoDecBufferData *) buf->private_data;
-      vdbuf_data->already_acquired = TRUE;
-    }
   } else if (!frame && buf->omx_buf->nFilledLen > 0) {
     GstBuffer *outbuf;
 
