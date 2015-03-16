@@ -1973,6 +1973,13 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         GST_TIME_ARGS (-deadline));
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
     frame = NULL;
+  } else if (frame &&
+      !GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT (frame) &&
+      GST_VIDEO_DECODER (self)->output_segment.rate < 0.0) {
+    GST_LOG_OBJECT (self,
+        "Drop a frame which is not a keyframe in the backward playback");
+    flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
+    frame = NULL;
   } else if (!frame && buf->omx_buf->nFilledLen > 0) {
     GstBuffer *outbuf;
 
