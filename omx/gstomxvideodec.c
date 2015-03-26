@@ -719,6 +719,8 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
           new_buf = gst_omx_buffer_pool_request_videosink_buffer_creation (pool,
               dmabuf_fd, vmeta->stride);
         else {
+          GstVideoMeta *new_meta;
+
           new_buf = gst_buffer_new ();
           for (i = 0; i < n_planes; i++)
             gst_buffer_append_memory (new_buf,
@@ -731,6 +733,11 @@ gst_omx_buffer_pool_acquire_buffer (GstBufferPool * bpool,
               GST_VIDEO_INFO_HEIGHT (&pool->video_info),
               GST_VIDEO_INFO_N_PLANES (&pool->video_info), vmeta->offset,
               vmeta->stride);
+
+          new_meta = gst_buffer_get_video_meta (new_buf);
+          /* To avoid detaching meta data when a buffer returns
+             to the buffer pool */
+          GST_META_FLAG_SET (new_meta, GST_META_FLAG_POOLED);
         }
 
         g_ptr_array_remove_index (pool->buffers, pool->current_buffer_index);
