@@ -245,6 +245,18 @@ AC_CHECK_LIB([mmngrbuf], [mmngr_export_start_in_user],
              ])
 fi
 
+dnl check page alignment option for NV12 planes
+AC_ARG_ENABLE([nv12-page-alignment],
+              [AS_HELP_STRING([--enable-nv12-page-alignment],
+                              [Enable the page alignment feature for NV12 planes])],
+              [],
+              [enable_nv12_page_alignment=no]
+)
+if test "x${enable_nv12_page_alignment}" = "xyes"; then
+  AC_DEFINE(ENABLE_NV12_PAGE_ALIGN, 1,
+            [Define if the page alignment feature for NV12 planes is enabled])
+fi
+
 dnl *** set variables based on configure arguments ***
 
 dnl set license and copyright notice

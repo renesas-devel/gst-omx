@@ -2476,6 +2476,59 @@ gst_omx_video_dec_negotiate (GstOMXVideoDec * self)
   return (err == OMX_ErrorNone);
 }
 
+#ifdef ENABLE_NV12_PAGE_ALIGN
+static gint
+get_uv_offset_aligned_to_page (gint page_size, gint stride, gint height)
+{
+  gint a, b, r;
+  gint lcm;
+
+  /*
+   * The following implementation uses the Euclidean Algorithm to obtain
+   * the least common multiple of stride and page size.
+   */
+
+  /* nStride is set to width, to achieve 4K aligned by adjusting
+     the nSliceHeight. */
+  /* (1) Calculate the GCD of stride and alignment */
+  b = stride;
+  a = page_size;
+  while ((r = a % b) != 0) {
+    a = b;
+    b = r;
+  }
+
+  /* (2) Calculate the LCM of stride and alignment */
+  lcm = stride * page_size / b;
+
+  /* (3) Calculate the offset of UV plane */
+  return (((stride * height) / lcm) + 1) * lcm;
+}
+
+static gboolean
+gst_omx_video_dec_align_uv_offset_to_page (GstOMXVideoDec * self,
+    OMX_PARAM_PORTDEFINITIONTYPE * out_port_def, gint page_size, gint stride,
+    gint height)
+{
+  gint uv_offset;
+
+  uv_offset = get_uv_offset_aligned_to_page (page_size, stride, height);
+
+  out_port_def->format.video.nStride = stride;
+  out_port_def->format.video.nSliceHeight = uv_offset / stride;
+
+  GST_DEBUG_OBJECT (self,
+      "Set nSliceHeight to %u for aligning the UV plane offset to the page size",
+      (guint) out_port_def->format.video.nSliceHeight);
+
+  if (gst_omx_port_update_port_definition (self->dec_out_port,
+          out_port_def) != OMX_ErrorNone)
+    return FALSE;
+
+  return TRUE;
+}
+#endif /* ENABLE_NV12_PAGE_ALIGN */
+
 static gboolean
 gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     GstVideoCodecState * state)
@@ -2486,6 +2539,10 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   OMX_PARAM_PORTDEFINITIONTYPE port_def;
+#ifdef ENABLE_NV12_PAGE_ALIGN
+  OMX_PARAM_PORTDEFINITIONTYPE out_port_def;
+  gint page_size;
+#endif
 
   self = GST_OMX_VIDEO_DEC (decoder);
   klass = GST_OMX_VIDEO_DEC_GET_CLASS (decoder);
@@ -2618,6 +2675,21 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   } else {
     if (!gst_omx_video_dec_negotiate (self))
       GST_LOG_OBJECT (self, "Negotiation failed, will get output format later");
+
+#ifdef ENABLE_NV12_PAGE_ALIGN
+    gst_omx_port_get_port_definition (self->dec_out_port, &out_port_def);
+
+    page_size = getpagesize ();
+    if (out_port_def.format.video.eColorFormat ==
+        OMX_COLOR_FormatYUV420SemiPlanar &&
+        (info->width * info->height) & (page_size - 1))
+      if (!gst_omx_video_dec_align_uv_offset_to_page (self, &out_port_def,
+              page_size, info->width, info->height)) {
+        GST_ERROR_OBJECT (self,
+            "Failed to align the uv offset of the NV12 plane to the page size");
+        return FALSE;
+      }
+#endif
 
     if (gst_omx_component_set_state (self->dec, OMX_StateIdle) != OMX_ErrorNone)
       return FALSE;
