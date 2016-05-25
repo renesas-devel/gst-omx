@@ -104,7 +104,7 @@ gst_omx_h264_dec_retrieve_sps_pps (GstOMXH264Dec * self, guint8 * data)
 
   sps_num = ptr[5] & 0x1f;      /* reserved(3bit) + numOfSequenceParameterSets(uint 5bit) */
 
-  sps_size_list = g_malloc (sps_num);
+  sps_size_list = g_malloc (sps_num * sizeof (*sps_size_list));
   if (!sps_size_list) {
     GST_ERROR_OBJECT (self, "failed g_malloc");
     return NULL;
@@ -119,7 +119,7 @@ gst_omx_h264_dec_retrieve_sps_pps (GstOMXH264Dec * self, guint8 * data)
   }
 
   pps_num = *ptr++;             /* numOfPictureParameterSets (unint 8bit) */
-  pps_size_list = g_malloc (pps_num);
+  pps_size_list = g_malloc (pps_num * sizeof (*pps_size_list));
   if (!pps_size_list) {
     GST_ERROR_OBJECT (self, "failed g_malloc");
     g_free (sps_size_list);
